@@ -20,7 +20,7 @@ Módulo desenvolvido para facilitar a integração entre WordPress e Central do 
 
 ![instalar](https://github.com/Buzz-Dev-Web/CentraldoFrete/blob/main/images/passo_2.jpg)
 
-4 -> Após instalar você terá que ativar o módulo clicando no botão, ATIVAR PLUGIN.
+4 -> Após instalar você terá que ativar o plugin clicando no botão, ATIVAR PLUGIN.
 
 ![ativar plugin](https://github.com/Buzz-Dev-Web/CentraldoFrete/blob/main/images/passo_3.jpg)
 
