@@ -14,15 +14,15 @@ Módulo desenvolvido para facilitar a integração entre WordPress e Central do 
 
 2 -> No painel WordPress, vá em plugins/adicionar novo e clique em ENVIAR PLUGIN.
 
-![enviar plugin](https://github.com/Buzz-Dev-Web/CentraldoFrete/images/blob/main/passo_1.jpg)
+![enviar plugin](https://github.com/Buzz-Dev-Web/CentraldoFrete/blob/main/images/passo_1.jpg)
 
 3 -> Em Escolher arquivos selecione o zip do plugin e logo em seguida clique em Instalar agora.
 
-![instalar](https://github.com/Buzz-Dev-Web/CentraldoFrete/images/blob/main/passo_2.jpg)
+![instalar](https://github.com/Buzz-Dev-Web/CentraldoFrete/blob/main/images/passo_2.jpg)
 
 4 -> Após instalar você terá que ativar o módulo clicando no botão, ATIVAR PLUGIN.
 
-![ativar plugin](https://github.com/Buzz-Dev-Web/CentraldoFrete/images/blob/main/passo_3.jpg)
+![ativar plugin](https://github.com/Buzz-Dev-Web/CentraldoFrete/blob/main/images/passo_3.jpg)
 
 ## Configuração:
 
@@ -30,13 +30,13 @@ Módulo desenvolvido para facilitar a integração entre WordPress e Central do 
 
 2 -> Você precisa ter uma área de entrega configurada, caso não possuir clique em ADICIONAR ÁREA DE ENTREGA
 
-![area de entrega](https://github.com/Buzz-Dev-Web/CentraldoFrete/images/blob/main/passo_4.jpg)
+![area de entrega](https://github.com/Buzz-Dev-Web/CentraldoFrete/blob/main/images/passo_4.jpg)
 
 ![area de entrega configuração](https://github.com/Buzz-Dev-Web/CentraldoFrete/blob/main/images/passo_5.jpg)
 
 3 -> Após configurar a área de entrega clique em ADICIONAR METODO DE ENTREGA, na listagem selecione CENTRAL DO FRETE
 
-![area de entrega](https://github.com/Buzz-Dev-Web/CentraldoFrete/images/blob/main/passo_6.jpg)
+![area de entrega](https://github.com/Buzz-Dev-Web/CentraldoFrete/blob/main/images/passo_6.jpg)
 
 4 -> Finalizado a etapa acima, clique em EDITAR
 
