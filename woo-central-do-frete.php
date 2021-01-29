@@ -4,107 +4,152 @@
  * Plugin URI: https://github.com/buzzmage/woo-central-do-frete
  * Description: Módulo de cotações de frete da Central do Frete para WooCommerce
  * Author: Buzz e-Commerce
- * Author URI: http://www.sitedabuzz.com.br
- * Version: 1.0.0.0
+ * Author URI: http://www.sitedabuzz.com.br/
+ * Version: 1.0.1
  * License: GPLv2
  */
 
-define('WOO_CENTRAL_BASE_PATH', plugin_dir_path(__FILE__));
-
-if (!defined('ABSPATH')) {
-    exit; // Exit if accessed directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
 }
 
-if (!class_exists('Woo_CentralDoFrete_Default')) :
+if ( ! class_exists( 'WooCommerce_CentralDoFrete_Main' ) ) :
 
-    /**
-     * Central do Frete default class.
-     */
-    class Woo_CentralDoFrete_Default
-    {
-        /**
-         * Plugin version.
-         * @var string
-         */
-        const VERSION = '1.0.0';
+	/**
+	 * Central do Frete main class.
+	 */
+	class WooCommerce_CentralDoFrete_Main {
+		/**
+		 * Plugin version.
+		 * @var string
+		 */
+		const VERSION = '1.0.1';
 
-        /**
-         * Instance of this class.
-         * @var object
-         */
-        protected static $instance = null;
+		/**
+		 * Instance of this class.
+		 * @var object
+		 */
+		protected static $instance = null;
 
-        /**
-         * Initialize the plugin
-         */
-        private function __construct()
-        {
-            // Checks with WooCommerce is installed.
-            if (class_exists('WC_Integration')) {
+		/**
+		 * Initialize the plugin
+		 */
+		private function __construct() {
+			$this->initialize();
+		}
 
-                include_once WOO_CENTRAL_BASE_PATH . 'classes/class-wc-centraldofrete-helper.php';
-                include_once WOO_CENTRAL_BASE_PATH . 'classes/class-wc-centraldofrete.php';
+		/**
+		 * Verify if all plugin dependencies are available
+		 * @return bool
+		 */
+		function verifyRequirements() {
+			if ( ! class_exists( 'WC_Integration' ) ) {
+				add_action( 'admin_notices', array( $this, 'missingWooCommerceNotice' ) );
 
-                add_filter('woocommerce_shipping_methods', array($this, 'wccentraldofrete_add_method'));
-                add_action('woocommerce_product_options_shipping', array('Woo_CentralDoFrete', 'add_custom_shipping_option_to_products'));
-                add_action('woocommerce_process_product_meta', array('Woo_CentralDoFrete', 'save_custom_field'));
-            } else {
-                add_action('admin_notices', array($this, 'wccentraldofrete_woocommerce_fallback_notice'));
-            }
+				return false;
+			}
 
-            if (!class_exists('SimpleXmlElement')) {
-                add_action('admin_notices', 'wccentraldofrete_extensions_missing_notice');
-            }
+			return true;
+		}
 
-        }
+		/**
+		 * Show message when WooCommerce aren't installed
+		 */
+		function missingWooCommerceNotice() {
+			$class = 'notice notice-warning';
+			$message = __( 'Sorry. The Central do Frete plugin depends on WooCommerce. Please install WooCommerce.' );
+			printf( '<div class="%1$s"><p>%2$s</p></div>', esc_attr( $class ), esc_html( $message ) );
+		}
 
-        /**
-         *
-         * Return an instance of this class.
-         * @return object A single instance of this class.
-         */
-        public static function get_instance()
-        {
-            // If the single instance hasn't been set, set it now.
-            if (null === self::$instance) {
-                self::$instance = new self;
-            }
+		/**
+		 * Initialize plugin
+		 */
+		public function initialize() {
+			if ( $this->verifyRequirements() ) {
+				$this->loadDependencies();
+				$this->addActions();
+			}
+		}
 
-            return self::$instance;
-        }
+		/**
+		 * Add this plugin to shipping methods - addCentralDoFreteMethod
+		 * Add product custom attributes - addCustomShippingOptionToProductForm
+		 * Add listener when save product with custom attributes - saveCustomField
+		 */
+		public function addActions() {
+			add_filter( 'woocommerce_shipping_methods', array( $this, 'addCentralDoFreteMethod' ) );
+			add_action( 'woocommerce_product_options_shipping', array(
+				'WooCommerce_CentralDoFrete_Method',
+				'addCustomShippingOptionToProductForm'
+			) );
+			add_action( 'woocommerce_process_product_meta', array(
+				'WooCommerce_CentralDoFrete_Method',
+				'saveCustomField'
+			) );
+		}
 
-        /**
-         * Get main file.
-         * @return string
-         */
-        public static function get_main_file()
-        {
-            return __FILE__;
-        }
+		/**
+		 * Load plugins classes
+		 */
+		public function loadDependencies() {
+			include( self::getPluginPath() . 'classes/WooCentralDoFrete.php' );
+			include( self::getPluginPath() . 'classes/Helper.php' );
+		}
 
-        /**
-         * Get plugin path.
-         * @return string
-         */
-        public static function get_plugin_path()
-        {
-            return plugin_dir_path(__FILE__);
-        }
+		/**
+		 *
+		 * Return an instance of this class.
+		 * @return object A single instance of this class.
+		 */
+		public static function getInstance() {
+			// If the single instance hasn't been set, set it now.
+			if ( null === self::$instance ) {
+				self::$instance = new self;
+			}
 
-        /**
-         * Add the Central do Frete to shipping methods.
-         * @param array $methods
-         * @return array
-         */
-        function wccentraldofrete_add_method($methods)
-        {
-            $methods['centraldofrete'] = 'Woo_CentralDoFrete';
+			return self::$instance;
+		}
 
-            return $methods;
-        }
+		/**
+		 * Get plugin path.
+		 * @return string
+		 */
+		public static function getPluginPath() {
+			return plugin_dir_path( __FILE__ );
+		}
 
-    }
+		/**
+		 * Add the Central do Frete to shipping methods.
+		 *
+		 * @param array $methods
+		 *
+		 * @return array
+		 */
+		function addCentralDoFreteMethod( $methods ) {
+			$methods['centraldofrete'] = 'WooCommerce_CentralDoFrete_Method';
 
-    add_action('plugins_loaded', array('Woo_CentralDoFrete_Default', 'get_instance'));
+			return $methods;
+		}
+
+		/**
+		 * Output a message or error
+		 *
+		 * @param string $message
+		 * @param string $type
+		 */
+		public function debug( $message, $type = 'notice' ) {
+			if ( $this->debug && ! is_admin() ) {
+				if ( version_compare( WOOCOMMERCE_VERSION, '2.1', '>=' ) ) {
+					wc_add_notice( $message, $type );
+				} else {
+					global $woocommerce;
+					$woocommerce->add_message( $message );
+				}
+			}
+		}
+
+	}
+
+	add_action( 'plugins_loaded', array( 'WooCommerce_CentralDoFrete_Main', 'getInstance' ) );
 
 endif;
