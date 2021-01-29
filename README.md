@@ -46,12 +46,12 @@ Módulo desenvolvido para facilitar a integração entre WordPress e Central do 
 
 ![token](https://github.com/Buzz-Dev-Web/CentraldoFrete/blob/main/images/passo_8.jpg)
 
-Feito isso clique em SALVAR e depois atualize a página para que o plugin busque os tipos de carga atrelada ao seu token.
+6 -> Feito isso clique em SALVAR e depois atualize a página para que o plugin busque os tipos de carga atrelada ao seu token.
 
-6 -> Por ultimo você deve inserir os dados de peso, tamanho e tipo de carga padrão.
+7 -> Por ultimo você deve inserir os dados de peso, tamanho e tipo de carga padrão.
 
 ![informacoes da carga](https://github.com/Buzz-Dev-Web/CentraldoFrete/blob/main/images/passo_9.jpg)
 
-7 -> Pronto, plugin instalado e configurado.
+8 -> Pronto, plugin instalado e configurado.
 
 ### BOAS VENDAS !
