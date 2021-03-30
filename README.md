@@ -28,7 +28,7 @@ Módulo desenvolvido para facilitar a integração entre WordPress e Central do 
 
 1 -> Acesse o menu do WooCommerce > Configurações > Entrega
 
-2 -> Você precisa ter uma área de entrega configurada, caso não possuir clique em ADICIONAR ÁREA DE ENTREGA
+2 -> Você precisa ter uma área de entrega configurada, se você já tem uma área de entrega configurada para o Brasil, o ideal é reaproveita-la em vez de criar uma nova, para evitar sobreposição das áreas de entrega. Caso não tenha clique em ADICIONAR ÁREA DE ENTREGA.
 
 ![area de entrega](https://github.com/Buzz-Dev-Web/CentraldoFrete/blob/main/images/passo_4.jpg)
 
