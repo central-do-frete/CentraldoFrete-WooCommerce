@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: WooCommerce Central do Frete
- * Plugin URI: https://github.com/buzzmage/woo-central-do-frete
+ * Plugin URI: https://github.com/central-do-frete/CentraldoFrete-WooCommerce
  * Description: Módulo de cotações de frete da Central do Frete para WooCommerce
- * Author: Buzz e-Commerce
- * Author URI: http://www.sitedabuzz.com.br/
- * Version: 1.0.1
+ * Author: Central do Frete
+ * Author URI: https://centraldofrete.com
+ * Version: 2.0.0
  * License: GPLv2
  */
 
@@ -23,7 +23,7 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Main' ) ) :
 		 * Plugin version.
 		 * @var string
 		 */
-		const VERSION = '1.0.1';
+		const VERSION = '2.0.0';
 
 		/**
 		 * Instance of this class.
@@ -57,7 +57,7 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Main' ) ) :
 		 */
 		function missingWooCommerceNotice() {
 			$class = 'notice notice-warning';
-			$message = __( 'Sorry. The Central do Frete plugin depends on WooCommerce. Please install WooCommerce.' );
+			$message = __( 'Desculpe, o plugin Central do Frete necessita do WooCommerce. Por favor, instalte o plugin WooCommerce.' );
 			printf( '<div class="%1$s"><p>%2$s</p></div>', esc_attr( $class ), esc_html( $message ) );
 		}
 

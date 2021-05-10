@@ -15,6 +15,38 @@ if (!class_exists('WooCommerce_CentralDoFrete_Helper')) :
         const API_CARGO_TYPE = "v1/cargo-type";
         const API_QUOTATIONS = "v1/quotation";
 
+        private $log;
+		/**
+		 * @var boolean
+		 */
+        private $debug = false;
+
+        public function __construct()
+        {
+            $this->log = wc_get_logger();
+        }
+
+        /**
+         * @param string $type
+         * @param string $message
+         */
+        public function write_log($type, $message)
+        {
+            $context = array( 'source' => 'central-do-frete' );
+            if (!is_null($this->log)) {
+                //if (!($type == 'debug' && !$this->debug)) {
+                    $this->log->log('info', $message, $context);
+                //}
+            }
+        }
+        /**
+         * @param boolean $debug
+         */
+        public function setDebug($debug)
+        {
+            $this->debug = $debug;
+        }
+
         /**
          * Retrieve Central do Frete instance ID
          * @return int
@@ -112,22 +144,26 @@ if (!class_exists('WooCommerce_CentralDoFrete_Helper')) :
 
         /**
          * Check if destination is available on Central do Frete
-         * @param $package array
+         * @param array $package
+         * @param string|null $from_zipcode
          * @return bool
          */
-        public function isValidDestination(array $package, $centraldofrete)
+        public function isValidDestination(array $package, string $from_zipcode = null)
         {
             $destinationPostcode = $package['destination']['postcode'];
             $destinationCountry = $package['destination']['country'];
             if (!is_array($package)) {
+                $this->write_log('error', "Nenhum produto selecionado");
                 return false;
             }
             // Checks if destination country exists and is BR.
             if (empty($destinationPostcode) && $destinationCountry == 'BR') {
+                $this->write_log('error', "CEP destino não informado");
                 return false;
             }
             // Checks if zipcode is empty.
-            if (empty($centraldofrete->zip_origin)) {
+            if (is_null($from_zipcode)) {
+                $this->write_log('error', "CEP origem não configurado");
                 return false;
             }
             return true;

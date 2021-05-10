@@ -83,6 +83,7 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 			$this->init_settings();
 			// Define user set variables.
 			$this->fillPropertiesWithStoredValues();
+			$this->helper->setDebug(!!$this->debug);
 			// Actions.
 			add_action(
 				'woocommerce_update_options_shipping_' . $this->id,
@@ -101,101 +102,96 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 		 */
 		public function init_form_fields() {
 			$this->instance_form_fields = array(
-				'enabled'            => array(
-					'title'   => __( 'Enable/Disable', 'woo-central-do-frete' ),
-					'type'    => 'checkbox',
-					'label'   => __( 'Enable this shipping method', 'woo-central-do-frete' ),
+				'enabled' => array(
+					'title' => __('Habilitar/Desabilitar', 'woo-central-do-frete'),
+					'type' => 'checkbox',
+					'label' => __('Habilitar método de entrega', 'woo-central-do-frete'),
 					'default' => 'yes'
 				),
-				'title'              => array(
-					'title'       => __( 'Title', 'woo-central-do-frete' ),
-					'type'        => 'text',
-					'description' => __( 'This controls the title which the user sees during checkout.', 'woo-central-do-frete' ),
-					'desc_tip'    => true,
-					'default'     => __( 'Central do Frete', 'woo-central-do-frete' )
+				'title' => array(
+					'title' => __('Título', 'woo-central-do-frete'),
+					'type' => 'text',
+					'description' => __('Título que o usuário visualiza durante o checkout.', 'woo-central-do-frete'),
+					'desc_tip' => true,
+					'default' => __('Central do Frete', 'woo-central-do-frete')
 				),
-				'display_date'       => array(
-					'title'       => __( 'Estimated delivery', 'woo-central-do-frete' ),
-					'type'        => 'checkbox',
-					'label'       => __( 'Enable', 'woo-central-do-frete' ),
-					'description' => __( 'Display date of estimated delivery.', 'woo-central-do-frete' ),
-					'desc_tip'    => true,
-					'default'     => 'yes'
+				'display_date' => array(
+					'title' => __('Exibir previsão de entrega', 'woo-central-do-frete'),
+					'type' => 'checkbox',
+					'label' => __('Habilitar', 'woo-central-do-frete'),
+					'description' => __('Exibir previsão de entrega em dias.', 'woo-central-do-frete'),
+					'desc_tip' => true,
+					'default' => 'yes'
 				),
-				'additional_time'    => array(
-					'title'       => __( 'Additional days', 'woo-central-do-frete' ),
-					'type'        => 'text',
-					'description' => __( 'Additional days to the estimated delivery.', 'woo-central-do-frete' ),
-					'desc_tip'    => true,
-					'default'     => '0',
+				'additional_time' => array(
+					'title' => __('Dias adicionais', 'woo-central-do-frete'),
+					'type' => 'text',
+					'description' => __('Adiciona dias adicionais a previsão de entrega.', 'woo-central-do-frete'),
+					'desc_tip' => true,
+					'default' => '0',
 					'placeholder' => '0'
 				),
-				'token'              => array(
-					'title'       => __( 'Token', 'woo-central-do-frete' ),
-					'type'        => 'password',
-					'description' => __( 'Your Central do Frete access token.', 'woo-central-do-frete' ),
-					'desc_tip'    => true
+				'token' => array(
+					'title' => __('Token', 'woo-central-do-frete'),
+					'type' => 'password',
+					'description' => __('Token gerado na plataforma Central do Frete.', 'woo-central-do-frete'),
+					'desc_tip' => true
 				),
-				'package_standard'   => array(
-					'title'       => __( 'Default Measures', 'woo-central-do-frete' ),
-					'type'        => 'title',
-					'description' => __( 'Sets a default measure for the fields when it does not have value.', 'woo-central-do-frete' ),
-					'desc_tip'    => true,
+				'package_standard' => array(
+					'title' => __('Dimensão padrão', 'woo-central-do-frete'),
+					'type' => 'title',
+					'description' => __('Configure a dimensão padrão do volume, para ser utilizada caso o produto não tenha uma dimensão ou peso configurado.', 'woo-central-do-frete'),
+					'desc_tip' => true,
 				),
-				'default_height'     => array(
-					'title'       => __( 'Default Height', 'woo-central-do-frete' ),
-					'type'        => 'text',
-					'description' => __( 'Default height of the package. Central do Frete needs at least 2 cm.', 'woo-central-do-frete' ),
-					'desc_tip'    => true,
-					'default'     => '2'
+				'default_height' => array(
+					'title' => __('Altura padrão (cm)', 'woo-central-do-frete'),
+					'type' => 'text',
+					'description' => __('Informe a altura padrão em centímetros.', 'woo-central-do-frete'),
+					'desc_tip' => true,
+					'default' => '2'
 				),
-				'default_width'      => array(
-					'title'       => __( 'Default Width', 'woo-central-do-frete' ),
-					'type'        => 'text',
-					'description' => __( 'Default width of the package. Central do Frete needs at least 11 cm.', 'woo-central-do-frete' ),
-					'desc_tip'    => true,
-					'default'     => '11'
+				'default_width' => array(
+					'title' => __('Largura padrão (cm)', 'woo-central-do-frete'),
+					'type' => 'text',
+					'description' => __('Informe a largura padrão em centímetros', 'woo-central-do-frete'),
+					'desc_tip' => true,
+					'default' => '11'
 				),
-				'default_length'     => array(
-					'title'       => __( 'Default Length', 'woo-central-do-frete' ),
-					'type'        => 'text',
-					'description' => __( 'Default length of the package. Central do Frete needs at least 16 cm.', 'woo-central-do-frete' ),
-					'desc_tip'    => true,
-					'default'     => '16'
+				'default_length' => array(
+					'title' => __('Comprimento padrão (cm)', 'woo-central-do-frete'),
+					'type' => 'text',
+					'description' => __('Informe o comprimentro padrão em centímetros.', 'woo-central-do-frete'),
+					'desc_tip' => true,
+					'default' => '16'
 				),
-				'default_weight'     => array(
-					'title'       => __( 'Default Weight', 'woo-central-do-frete' ),
-					'type'        => 'text',
-					'description' => __( 'Default weight of the package. Central do Frete needs at least 0.3 kg (300g).', 'woo-central-do-frete' ),
-					'desc_tip'    => true,
-					'default'     => '0.3'
+				'default_weight' => array(
+					'title' => __('Peso padrão (kg)', 'woo-central-do-frete'),
+					'type' => 'text',
+					'description' => __('Informe o peso padrão do volume..', 'woo-central-do-frete'),
+					'desc_tip' => true,
+					'default' => '0.3'
 				),
 				'default_cargo_type' => array(
-					'title'       => __( 'Default Cargo Type', 'woocommerce' ),
-					'type'        => 'select',
-					'description' => __( 'Select default shipping cargo type.', 'woo-central-do-frete' ),
-					'desc_tip'    => true,
-					'options'     => self::getCargoTypesOptions()
+					'title' => __('Tipo de carga padrão', 'woocommerce'),
+					'type' => 'select',
+					'description' => __('Selecione um tipo de carga padrão. Para visualizar os tipos de carga padrão é necessário estar com o token configurado.', 'woo-central-do-frete'),
+					'default' => 'flat_rate',
+					'desc_tip' => true,
+					'options' => self::getCargoTypesOptions()
 				),
-				'developer'          => array(
-					'title'       => __( 'Developers', 'woo-central-do-frete' ),
-					'type'        => 'title',
-					'description' => __( 'Control logs and requests environment.', 'woo-central-do-frete' ),
-					'desc_tip'    => true,
+				'debug' => array(
+					'title' => __('Debug Log', 'woo-central-do-frete'),
+					'type' => 'checkbox',
+					'label' => __('Habilitar modo de debug', 'woo-central-do-frete'),
+					'default' => 'no',
+					'description' => sprintf(__('Registra os eventos realizados, como WebServices requests, log localizado em %s.', 'woo-central-do-frete'), '<code>wp-content/uploads/wc-logs/central-do-frete...</code>')
 				),
-				'debug'              => array(
-					'title'       => __( 'Debug Log', 'woo-central-do-frete' ),
-					'type'        => 'checkbox',
-					'label'       => __( 'Enable logging', 'woo-central-do-frete' ),
-					'default'     => 'no',
-					'description' => sprintf( __( 'Log Central do Frete events, such as requests inside %s.', 'woo-central-do-frete' ), '<code>wc-logs/centraldofrete-' . sanitize_file_name( date( 'Y-m-d' ) . wp_hash( 'centraldofrete' ) ) . '.log</code>' )
-				),
-				'sandbox'            => array(
-					'title'       => __( 'Sandbox', 'woo-central-do-frete' ),
-					'type'        => 'checkbox',
-					'label'       => __( 'Enable sandbox', 'woo-central-do-frete' ),
-					'default'     => 'no',
-					'description' => __( 'Make requests to sandbox endpoint', 'woo-central-do-frete' )
+				'sandbox' => array(
+					'title' => __('Sandbox', 'woo-central-do-frete'),
+					'type' => 'checkbox',
+					'label' => __('Habilitrar sandbox', 'woo-central-do-frete'),
+					'default' => 'no',
+					'description' => __('Realiza requests para um ambiente de sandbox', 'woo-central-do-frete')
 				)
 			);
 			$this->form_fields          = $this->instance_form_fields;
@@ -248,12 +244,6 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 				return false;
 			}
 
-			if ( $cargo_types->error ) {
-				$this->clearCargoTypes();
-
-				return false;
-			}
-
 			if ( count( $cargo_types ) ) {
 				return true;
 			}
@@ -298,7 +288,7 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 		private static function getCargoTypesOptions() {
 			return array_replace(
 				array(
-					'' => __( 'Select a cargo type', 'woo-central-do-frete' ),
+					'' => __( 'Selecione um tipo de carga', 'woo-central-do-frete' ),
 				),
 				self::getCargoTypes()
 			);
@@ -311,7 +301,7 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 		 */
 		public function admin_options() {
 			echo '<h3>' . $this->method_title . '</h3>';
-			echo '<p>' . __( 'Central do Frete is a brazilian delivery method.', 'woo-central-do-frete' ) . '</p>';
+			echo '<p>' . __( 'Cotação de Frete Online ideal para sua empresa.', 'woo-central-do-frete' ) . '</p>';
 			echo '<table class="form-table">';
 			$this->generate_settings_html();
 			echo '</table>';
@@ -351,10 +341,13 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 		 *
 		 * @param mixed $zip
 		 *
-		 * @return int
+		 * @return string
 		 */
 		protected function fixZipCode( $zip ) {
-			return preg_replace( '([^0-9])', "", $zip );
+			if (!is_null($zip)) {
+				return preg_replace( '([^0-9])', "", $zip );
+			}
+			return $zip;
 		}
 
 		/**
@@ -369,8 +362,10 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 			if ( isset( $this->token ) && $this->token != "" ) {
 				$shipping_values = $this->collectRates( $package );
 			} else {
+				$this->helper->write_log('error', 'Token não encontrado');
 				return false;
 			}
+			$this->helper->write_log('debug', json_encode($shipping_values));
 			if ( ! empty( $shipping_values ) ) {
 				foreach ( $shipping_values as $code => $shipping ) {
 					if ( ! isset( $shipping->price ) ) {
@@ -398,6 +393,7 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 							'CDF_QUOTATION' => $cdf_quotation_code
 						)
 					) );
+					$this->helper->write_log('debug', print_r($rates, true));
 				}
 				foreach ( $rates as $rate ) {
 					$this->add_rate( $rate );
@@ -421,7 +417,7 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 				$date += intval( $additional_time );
 			}
 			if ( $date > 0 ) {
-				$name .= ' (' . sprintf( _n( 'Delivery in %d day', 'Delivery in %d days', $date, 'woo-central-do-frete' ), $date ) . ')';
+				$name .= ' (' . sprintf( _n( 'Entrega em %d dia', 'Entrega em %d dias', $date, 'woo-central-do-frete' ), $date ) . ')';
 			}
 
 			return $name;
@@ -438,7 +434,9 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 			$methods       = array();
 			$quotationData = [];
 			try {
-				if ( ! $this->helper->isValidDestination( $package, $this ) == false ) {
+				$this->helper->write_log('debug', 'Origem: ' .  $this->fixZipCode( $this->zip_origin ) );
+				$isValidDestination = $this->helper->isValidDestination( $package, $this->fixZipCode( $this->zip_origin ) );
+				if (!$isValidDestination) {
 					return $methods;
 				}
 				$shipmentInvoiceValue = 0;
@@ -450,8 +448,10 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 					$productCargoType = $this->getCargoTypeByProductId( $product->get_id() );
 					if ( $productCargoType ) {
 						$lastCargoType = $productCargoType;
+						$this->helper->write_log('debug', 'Tipo de carga do produto ' . $lastCargoType);
 					} else {
 						$lastCargoType = $this->helper->getDefaultCargoType();
+						$this->helper->write_log('debug', 'Tipo de carga ' . $lastCargoType);
 					}
 					$quotationData['cargo_types'][] = $lastCargoType;
 
@@ -512,11 +512,15 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 						}
 					}
 				}
+				$this->helper->write_log('debug', 'CEP do destinatário: ' . $package['destination']['postcode'] ?? 'Não informado');
 				$shipmentInvoiceValue            = WC()->cart->cart_contents_total;
 				$quotationData['invoice_amount'] = $shipmentInvoiceValue;
 				$quotationData['from']           = $this->fixZipCode( $this->zip_origin );
 				$quotationData['to']             = $this->fixZipCode( $package['destination']['postcode'] );
 				$quotationData['cargo_types']    = array_unique( $quotationData['cargo_types'] );
+				
+				$this->helper->write_log('debug', print_r($quotationData, true));
+	
 				$requestsArgument                = [
 					'method'  => 'POST',
 					'headers' => $this->helper->getRequestHeaders(),
@@ -534,7 +538,11 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 						$current_quote_code     = $current_quote->code;
 						$quote_details_endpoint = $this->helper->getQuotesURL( $current_quote_code );
 						$quote_details_response = wp_remote_get( $quote_details_endpoint, $requestsArgument );
+						$this->helper->write_log('debug', "Código da cotação: " . $current_quote_code);
+						$this->helper->write_log('debug', json_encode($requestsArgument));
+					
 						if ( is_wp_error( $quote_details_response ) ) {
+							$this->helper->write_log('error', 'WP_Error: ' . $quote_details_response->get_error_message());
 						} else {
 							$quote_details_response_data = json_decode( $quote_details_response['body'] );
 							if ( ! empty( $quote_details_response_data->prices ) ) {
@@ -544,15 +552,18 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 										continue;
 									}
 									$code                        = (string) $service->id;
+									$this->helper->write_log('debug', 'Resultados [' . $service->shipping_carrier . ']: ' . print_r($service, true));
 									$service->cdf_quotation_code = $current_quote_code;
 									$methods[ $code ]            = $service;
 								}
-							}
+							} 
 						}
 					}
 				} else {
+					$this->helper->write_log('error', $quote_response->get_error_message());
 				}
 			} catch ( Exception $e ) {
+				$this->helper->write_log('erro', print_r($e->getMessage()));
 			}
 
 			return $methods;
@@ -617,7 +628,7 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 			woocommerce_wp_select(
 				array(
 					'id'          => 'cargo_type',
-					'label'       => __( 'Cargo Type', 'woo-central-do-frete' ),
+					'label'       => __( 'Tipo de carga', 'woo-central-do-frete' ),
 					'options'     => self::getCargoTypesOptions(),
 					'desc_tip'    => true,
 					'description' => __( 'Este campo é necessário para o cálculo de frete usando a Central do Frete', 'woo-central-do-frete' ),
