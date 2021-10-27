@@ -127,7 +127,8 @@ if (!class_exists('WooCommerce_CentralDoFrete_Helper')) :
             $options = $this->getCentralDoFreteOptions();
             return [
                 'Authorization' => $options['token'],
-                'Content-Type' => 'application/json'
+                'Content-Type' => 'application/json',
+		'source' => 'WORDPRESS'
             ];
         }
 
