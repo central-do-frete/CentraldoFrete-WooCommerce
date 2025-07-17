@@ -5,7 +5,7 @@
  * Description: Módulo de cotações de frete da Central do Frete para WooCommerce
  * Author: Central do Frete
  * Author URI: https://centraldofrete.com
- * Version: 2.0.1
+ * Version: 2.0.3
  * License: GPLv2
  */
 
