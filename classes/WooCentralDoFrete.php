@@ -385,7 +385,7 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 					$cost               = floatval( str_replace( ",", ".", (string) $shipping->price ) );
 					$cdf_quotation_code = $shipping->cdf_quotation_code;
 					array_push( $rates, array(
-						'id'        => 'CDF_' . $shipping->id,
+						'id' 	    => 'CDF_' . $shipping->shipping_carrier . (is_null($shipping->service_type) ? '_' . $shipping->service_type : ''),
 						'label'     => $label,
 						'cost'      => $cost,
 						'meta_data' => array(
