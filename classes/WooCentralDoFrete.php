@@ -270,16 +270,18 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 			return false;
 		}
 
-		/**
-		 * Check if cargo type has parent (cargo_type_id)
-		 *
-		 * @param $cargoType
-		 *
-		 * @return bool
-		 */
-		private static function cargoTypeIsParent( $cargoType ) {
-			return is_null( $cargoType->cargo_type_id ) || $cargoType->cargo_type_id == 0;
-		}
+	/**
+	 * Check if cargo type is valid for single level usage
+	 * Since we're using only 1 level, all cargo types are considered valid
+	 *
+	 * @param $cargoType
+	 *
+	 * @return bool
+	 */
+	private static function cargoTypeIsParent( $cargoType ) {
+		// For single level usage, consider all cargo types as valid
+		return true;
+	}
 
 		/**
 		 * Provide cargo type array, used on product form and method configuration
@@ -569,33 +571,27 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 			return $methods;
 		}
 
-		/**
-		 * Get stored cargo types, formatted like PARENT >> CHILD, ordered by parent name asc
-		 * @return array
-		 */
-		private static function getCargoTypes() {
-			$cargo_types = get_option( self::CARGO_TYPES_OPTION_NAME );
-			if ( $cargo_types == false ) {
-				return [];
-			}
-			$cargos  = [];
-			$parents = [];
-			foreach ( $cargo_types as $cargo ) {
-				if ( self::cargoTypeIsParent( $cargo ) ) {
-					$parents[ $cargo->id ] = $cargo->name;
-				}
-			}
-
-			foreach ( $cargo_types as $cargo ) {
-				if ( ! self::cargoTypeIsParent( $cargo ) ) {
-					$parent               = $parents[ $cargo->cargo_type_id ];
-					$cargos[ $cargo->id ] = $parent . " >> " . $cargo->name;
-				}
-			}
-			asort( $cargos );
-
-			return $cargos;
+	/**
+	 * Get stored cargo types, returning only level 1 cargo types (no hierarchy)
+	 * @return array
+	 */
+	private static function getCargoTypes() {
+		$cargo_types = get_option( self::CARGO_TYPES_OPTION_NAME );
+		if ( $cargo_types == false ) {
+			return [];
 		}
+		$cargos = [];
+		
+		// Return only level 1 cargo types (those without parent or with cargo_type_id = 0)
+		foreach ( $cargo_types as $cargo ) {
+			if ( self::cargoTypeIsParent( $cargo ) ) {
+				$cargos[ $cargo->id ] = $cargo->name;
+			}
+		}
+		asort( $cargos );
+
+		return $cargos;
+	}
 
 		/**
 		 * Get cargo types from API and save in db
