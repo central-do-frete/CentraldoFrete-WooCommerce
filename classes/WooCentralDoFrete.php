@@ -419,7 +419,7 @@ if ( ! class_exists( 'WooCommerce_CentralDoFrete_Method' ) ) :
 				$date += intval( $additional_time );
 			}
 			if ( $date > 0 ) {
-				$name .= ' (' . sprintf( _n( 'Entrega em %d dia', 'Entrega em %d dias', $date, 'woo-central-do-frete' ), $date ) . ')';
+				$name .= ' (' . sprintf( _n( 'Entrega em %d dia útil', 'Entrega em %d dias úteis', $date, 'woo-central-do-frete' ), $date ) . ')';
 			}
 
 			return $name;
