@@ -1,0 +1,124 @@
+.cdf-shipping-calculator {
+	margin: 1.5em 0;
+	padding: 1em;
+	border: 1px solid #e0e0e0;
+	border-radius: 4px;
+	background: #fafafa;
+}
+
+.cdf-shipping-calculator .cdf-title {
+	font-size: 0.95em;
+	font-weight: 600;
+	margin: 0 0 0.75em;
+	display: flex;
+	align-items: center;
+	gap: 0.4em;
+}
+
+.cdf-shipping-calculator .cdf-title svg {
+	flex-shrink: 0;
+}
+
+.cdf-shipping-calculator .cdf-form-row {
+	display: flex;
+	gap: 0.5em;
+}
+
+.cdf-shipping-calculator .cdf-postcode-input {
+	flex: 1;
+	padding: 0.5em 0.75em;
+	border: 1px solid #ccc;
+	border-radius: 4px;
+	font-size: 0.9em;
+	max-width: 180px;
+}
+
+.cdf-shipping-calculator .cdf-calculate-btn {
+	padding: 0.5em 1.2em;
+	background: #333;
+	color: #fff;
+	border: none;
+	border-radius: 4px;
+	font-size: 0.9em;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.cdf-shipping-calculator .cdf-calculate-btn:hover {
+	background: #555;
+}
+
+.cdf-shipping-calculator .cdf-calculate-btn:disabled {
+	background: #999;
+	cursor: wait;
+}
+
+.cdf-results {
+	margin-top: 0.75em;
+}
+
+.cdf-rates-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.85em;
+}
+
+.cdf-rates-table th,
+.cdf-rates-table td {
+	padding: 0.5em 0.6em;
+	text-align: left;
+	border-bottom: 1px solid #e0e0e0;
+}
+
+.cdf-rates-table thead th {
+	font-weight: 600;
+	background: #f5f5f5;
+	font-size: 0.9em;
+}
+
+.cdf-rates-table tbody tr:last-child td {
+	border-bottom: none;
+}
+
+.cdf-error {
+	color: #c00;
+	font-size: 0.85em;
+	margin: 0;
+}
+
+/* Carrier logo */
+.cdf-carrier-logo {
+	width: 50px;
+	height: 20px;
+	object-fit: contain;
+	vertical-align: middle;
+	margin-right: 6px;
+	border-radius: 2px;
+	background: #fff;
+}
+
+.cdf-carrier-cell {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.cdf-price-cell {
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+	.cdf-shipping-calculator .cdf-postcode-input {
+		max-width: none;
+	}
+
+	.cdf-rates-table {
+		font-size: 0.8em;
+	}
+
+	.cdf-rates-table th,
+	.cdf-rates-table td {
+		padding: 0.4em;
+	}
+}
