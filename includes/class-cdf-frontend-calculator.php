@@ -25,6 +25,12 @@ class CDF_Frontend_Calculator {
 			return;
 		}
 
+		$product = wc_get_product( get_the_ID() );
+
+		if ( ! $product || ! self::is_product_served( $product ) ) {
+			return;
+		}
+
 		// Enqueue assets.
 		wp_enqueue_style(
 			'cdf-calculator',
@@ -62,7 +68,7 @@ class CDF_Frontend_Calculator {
 
 		check_ajax_referer( 'cdf_calculate_nonce', 'nonce' );
 
-		$postcode   = preg_replace( '/\D/', '', sanitize_text_field( $_POST['postcode'] ?? '' ) );
+		$postcode   = preg_replace( '/\D/', '', sanitize_text_field( wp_unslash( $_POST['postcode'] ?? '' ) ) );
 		$product_id = absint( $_POST['product_id'] ?? 0 );
 		$quantity   = max( 1, absint( $_POST['quantity'] ?? 1 ) );
 
@@ -82,6 +88,15 @@ class CDF_Frontend_Calculator {
 		if ( ! $product ) {
 			CDF_API_Client::log( 'error', '[CALC] Produto não encontrado: ' . $product_id );
 			wp_send_json_error( [ 'message' => __( 'Produto não encontrado.', 'central-do-frete' ) ] );
+		}
+
+		if ( ! self::is_product_served( $product ) ) {
+			CDF_API_Client::log( 'debug', sprintf(
+				'[CALC] Produto %d fora da restrição de classe de entrega (classe: %s)',
+				$product_id,
+				CDF_Shipping_Class_Rule::class_of_product( $product )
+			) );
+			wp_send_json_error( [ 'message' => __( 'Este produto não é cotado pela Central do Frete.', 'central-do-frete' ) ] );
 		}
 
 		$settings = CDF_Shipping_Method::get_settings();
@@ -225,6 +240,7 @@ class CDF_Frontend_Calculator {
 				'service_type'  => esc_html( $service['service_type'] ?? '' ),
 				'price'         => number_format( $cost, 2, ',', '.' ),
 				'delivery_time' => sprintf(
+					/* translators: %d: number of business days until delivery */
 					_n( '%d dia útil', '%d dias úteis', $days, 'central-do-frete' ),
 					$days
 				),
@@ -257,6 +273,30 @@ class CDF_Frontend_Calculator {
 		}
 
 		wp_send_json_success( $response );
+	}
+
+	/**
+	 * The product page has no shipping zone context, so the calculator shows up when any
+	 * enabled instance of the method serves this product's shipping class.
+	 *
+	 * @param WC_Product $product Product being displayed or quoted.
+	 */
+	private static function is_product_served( $product ): bool {
+		$instances = CDF_Shipping_Method::get_all_settings();
+
+		if ( empty( $instances ) ) {
+			return true;
+		}
+
+		$classes = [ CDF_Shipping_Class_Rule::class_of_product( $product ) ];
+
+		foreach ( $instances as $settings ) {
+			if ( CDF_Shipping_Class_Rule::allows_for_settings( $classes, $settings ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

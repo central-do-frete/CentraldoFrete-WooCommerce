@@ -20,6 +20,13 @@ Plugin oficial para integração entre WooCommerce e [Central do Frete](https://
 - Exibe transportadora, prazo e valor
 - CEP salvo na sessão para pré-preencher no checkout
 
+### Restrição por classe de entrega
+- Define, por área de entrega, com quais classes a Central do Frete trabalha
+- Modo "apenas as classes selecionadas" e modo "todas, exceto as selecionadas"
+- Produtos sem classe podem ser selecionados como se fossem uma classe
+- Carrinho misto configurável: basta um produto atendido, ou todos precisam se enquadrar
+- Carrinho bloqueado não consulta a API
+
 ### Opções de exibição
 - Mostrar todas as transportadoras
 - Apenas as 3 mais baratas
@@ -75,7 +82,21 @@ Plugin oficial para integração entre WooCommerce e [Central do Frete](https://
 4. Clique em **Atualizar Tipos de Carga** para carregar as opções disponíveis
 5. Configure as demais opções conforme sua necessidade
 
-### 3. Configurar produtos
+### 3. Restringir por classe de entrega (opcional)
+
+A seção **Restrição por classe de entrega** só aparece se a loja já tiver classes cadastradas em **WooCommerce > Configurações > Entrega > Classes de entrega**.
+
+1. Cadastre as classes e marque cada produto na aba **Envio**
+2. Nas configurações do método, escolha a regra:
+   - **Todas as classes**: comportamento padrão, a Central do Frete cota tudo
+   - **Apenas as classes selecionadas**: cota só o que estiver marcado
+   - **Todas, exceto as selecionadas**: deixa de cotar o que estiver marcado
+3. Selecione as classes. Sem nenhuma selecionada, a Central do Frete continua atendendo todas
+4. Decida o carrinho misto. Com **Exigir que todos os produtos do carrinho se enquadrem** desligado, basta um produto atendido para a Central do Frete aparecer
+
+**Atenção:** se o carrinho ficar sem nenhum método de entrega disponível, o cliente não consegue fechar o pedido. Mantenha outro método na mesma área de entrega para os produtos que você deixar de fora.
+
+### 4. Configurar produtos
 
 - Cada produto pode ter um **Tipo de Carga** específico (na aba Envio do produto)
 - Produtos sem tipo de carga usam o padrão configurado no plugin
@@ -89,6 +110,7 @@ central-do-frete/
 ├── includes/
 │   ├── class-cdf-loader.php          # Carregamento e hooks
 │   ├── class-cdf-shipping-method.php # Método de envio WooCommerce
+│   ├── class-cdf-shipping-class-rule.php # Regra de classe de entrega
 │   ├── class-cdf-api-client.php      # Cliente da API
 │   ├── class-cdf-cache.php           # Sistema de cache
 │   ├── class-cdf-product-fields.php  # Campos no produto
@@ -96,8 +118,40 @@ central-do-frete/
 ├── assets/
 │   ├── js/cdf-calculator.js          # JavaScript do calculador
 │   └── css/cdf-calculator.css        # Estilos do calculador
-└── templates/
-    └── product-shipping-calculator.php # Template do calculador
+├── templates/
+│   └── product-shipping-calculator.php # Template do calculador
+├── readme.txt                        # Ficha do diretório do WordPress.org
+└── LICENSE                           # GPLv2
+```
+
+## Ficha do WordPress.org
+
+Os arquivos da ficha do diretório (ícone, banner e screenshots) ficam em `.wordpress-org/`
+e **não** vão no zip do plugin. No SVN eles são copiados para a pasta `assets/` do topo,
+que é irmã de `trunk/` e `tags/`, não a pasta `assets/` que existe dentro do plugin.
+
+```
+.wordpress-org/
+├── icon-128x128.png      # ícone da ficha
+├── icon-256x256.png      # ícone em alta densidade
+├── icon.svg              # versão vetorial
+├── banner-772x250.png    # cabeçalho da ficha
+├── banner-1544x500.png   # cabeçalho em alta densidade
+├── screenshot-1.png      # conexão e exibição
+├── screenshot-2.png      # restrição por classe de entrega
+└── screenshot-3.png      # calculador na página do produto
+```
+
+As legendas das screenshots vivem na seção `== Screenshots ==` do `readme.txt`, na ordem
+dos números dos arquivos.
+
+## Gerando o pacote de distribuição
+
+O zip entregue ao lojista sai do próprio git, sem os arquivos de desenvolvimento
+(`.gitattributes` cuida disso) e com a pasta já nomeada como o slug:
+
+```bash
+git archive --format=zip --prefix=central-do-frete/ -o central-do-frete.zip HEAD
 ```
 
 ## Debug
@@ -114,7 +168,29 @@ Os logs incluem:
 - Cache hits/misses
 - Erros e warnings
 
+## Testes
+
+A regra de classe de entrega é coberta por PHPUnit e roda sem WordPress.
+
+```bash
+composer install
+composer test
+```
+
+Sem PHP na máquina, dá para rodar em container:
+
+```bash
+docker run --rm -v "$PWD":/app -w /app composer:2 install
+docker run --rm -v "$PWD":/app -w /app php:7.4-fpm-alpine php vendor/bin/phpunit
+```
+
 ## Changelog
+
+### 3.1.0
+- Restrição por classe de entrega, por área de entrega
+- Calculador da página do produto respeita a restrição
+- Salvar as configurações passa a invalidar o cache de tarifas do WooCommerce
+- Testes automatizados da regra de classe (PHPUnit)
 
 ### 3.0.0
 - Reescrita completa do plugin
