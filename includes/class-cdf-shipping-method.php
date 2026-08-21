@@ -29,13 +29,14 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 
 		add_action( 'woocommerce_update_options_shipping_' . $this->id, [ $this, 'process_admin_options' ] );
 		add_action( 'woocommerce_update_options_shipping_' . $this->id, [ $this, 'maybe_refresh_cargo_types' ] );
+		add_action( 'woocommerce_update_options_shipping_' . $this->id, [ $this, 'flush_shipping_rate_cache' ] );
 	}
 
 	public function init_form_fields(): void {
 		$cargo_type_options = $this->get_cargo_type_options();
 		$has_cargo_types    = count( $cargo_type_options ) > 1;
 
-		$this->instance_form_fields = [
+		$this->instance_form_fields = array_merge( [
 			// ═══════════════════════════════════════════════════════════════
 			// SEÇÃO 1: CONEXÃO
 			// ═══════════════════════════════════════════════════════════════
@@ -193,8 +194,10 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 				'description' => __( 'Usado quando o produto não tem um tipo específico definido.', 'central-do-frete' ),
 			],
 
+		], $this->get_shipping_class_fields(), [
+
 			// ═══════════════════════════════════════════════════════════════
-			// SEÇÃO 6: CONFIGURAÇÕES TÉCNICAS
+			// SEÇÃO 7: CONFIGURAÇÕES TÉCNICAS
 			// ═══════════════════════════════════════════════════════════════
 			'section_advanced' => [
 				'title'       => __( '🔧 Configurações técnicas', 'central-do-frete' ),
@@ -231,7 +234,70 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 					'<a href="' . admin_url( 'admin.php?page=wc-status&tab=logs' ) . '">WooCommerce → Status → Logs</a>'
 				),
 			],
+		] );
+	}
+
+	/**
+	 * Shipping class restriction fields, empty when the store has no classes registered.
+	 */
+	private function get_shipping_class_fields(): array {
+		$class_options = $this->get_shipping_class_options();
+
+		if ( empty( $class_options ) ) {
+			return [];
+		}
+
+		return [
+			'section_shipping_classes' => [
+				'title'       => __( '🧱 Restrição por classe de entrega', 'central-do-frete' ),
+				'type'        => 'title',
+				'description' => __( 'Define com quais classes de entrega a Central do Frete trabalha. Se o carrinho ficar sem nenhum método disponível, o cliente não consegue fechar o pedido, então mantenha outro método nesta área de entrega para os produtos que você deixar de fora.', 'central-do-frete' ),
+			],
+			'shipping_class_rule' => [
+				'title'       => __( 'Quais classes a Central do Frete atende?', 'central-do-frete' ),
+				'type'        => 'select',
+				'default'     => CDF_Shipping_Class_Rule::RULE_ALL,
+				'options'     => [
+					CDF_Shipping_Class_Rule::RULE_ALL     => __( 'Todas as classes', 'central-do-frete' ),
+					CDF_Shipping_Class_Rule::RULE_INCLUDE => __( 'Apenas as classes selecionadas', 'central-do-frete' ),
+					CDF_Shipping_Class_Rule::RULE_EXCLUDE => __( 'Todas, exceto as selecionadas', 'central-do-frete' ),
+				],
+			],
+			'shipping_classes' => [
+				'title'       => __( 'Classes de entrega', 'central-do-frete' ),
+				'type'        => 'multiselect',
+				'class'       => 'wc-enhanced-select',
+				'default'     => [],
+				'options'     => $class_options,
+				'description' => __( 'Sem nenhuma classe selecionada, a Central do Frete continua atendendo todas.', 'central-do-frete' ),
+			],
+			'shipping_class_strict' => [
+				'title'       => __( 'Carrinho misto', 'central-do-frete' ),
+				'type'        => 'checkbox',
+				'default'     => 'no',
+				'label'       => __( 'Exigir que todos os produtos do carrinho se enquadrem', 'central-do-frete' ),
+				'description' => __( 'Desligado, basta um produto atendido para a Central do Frete aparecer num carrinho misto.', 'central-do-frete' ),
+			],
 		];
+	}
+
+	/**
+	 * Registered shipping classes as select options, keyed by term id.
+	 */
+	private function get_shipping_class_options(): array {
+		$options = [];
+
+		foreach ( WC()->shipping()->get_shipping_classes() as $shipping_class ) {
+			if ( isset( $shipping_class->term_id, $shipping_class->name ) ) {
+				$options[ (string) $shipping_class->term_id ] = $shipping_class->name;
+			}
+		}
+
+		if ( ! empty( $options ) ) {
+			$options[ CDF_Shipping_Class_Rule::NO_CLASS ] = __( 'Produtos sem classe de entrega', 'central-do-frete' );
+		}
+
+		return $options;
 	}
 
 	/**
@@ -331,6 +397,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		CDF_API_Client::log( 'info', sprintf( '[ADMIN] %d tipos de carga salvos', count( $types ) ) );
 
 		wp_send_json_success( [
+			/* translators: %d: number of cargo types loaded from the API */
 			'message' => sprintf( __( '%d tipos de carga carregados!', 'central-do-frete' ), count( $types ) ),
 			'count'   => count( $types ),
 		] );
@@ -344,7 +411,30 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 			return false;
 		}
 
-		return apply_filters( 'woocommerce_shipping_centraldofrete_is_available', true, $package, $this );
+		$settings     = $this->get_shipping_class_settings();
+		$cart_classes = CDF_Shipping_Class_Rule::classes_from_package( $package );
+		$available    = CDF_Shipping_Class_Rule::allows_for_settings( $cart_classes, $settings );
+
+		if ( ! $available ) {
+			CDF_API_Client::log( 'debug', sprintf(
+				'[SHIP] Carrinho fora da restrição de classe de entrega - Regra: %s, Classes do carrinho: [%s]',
+				$settings['shipping_class_rule'],
+				implode( ', ', $cart_classes ) ?: 'N/A'
+			) );
+		}
+
+		return apply_filters( 'woocommerce_shipping_centraldofrete_is_available', $available, $package, $this );
+	}
+
+	/**
+	 * Shipping class restriction as `CDF_Shipping_Class_Rule` reads it.
+	 */
+	private function get_shipping_class_settings(): array {
+		return [
+			'shipping_class_rule'   => $this->get_option( 'shipping_class_rule', CDF_Shipping_Class_Rule::RULE_ALL ),
+			'shipping_classes'      => (array) $this->get_option( 'shipping_classes', [] ),
+			'shipping_class_strict' => $this->get_option( 'shipping_class_strict', 'no' ),
+		];
 	}
 
 	/**
@@ -654,6 +744,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 				$label .= sprintf(
 					' (%s)',
 					sprintf(
+						/* translators: %d: number of business days until delivery */
 						_n( 'Entrega em %d dia útil', 'Entrega em %d dias úteis', $days, 'central-do-frete' ),
 						$days
 					)
@@ -797,6 +888,15 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 	}
 
 	/**
+	 * Rates live in the customer session keyed by a hash of the cart plus the shipping
+	 * transient version. The hash does not cover our settings, so without bumping the
+	 * version the merchant keeps seeing the rates from before the change.
+	 */
+	public function flush_shipping_rate_cache(): void {
+		WC_Cache_Helper::get_transient_version( 'shipping', true );
+	}
+
+	/**
 	 * Get all cargo types (static, for use by other classes).
 	 */
 	public static function get_cargo_types(): array {
@@ -822,6 +922,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 	public static function get_settings(): array {
 		global $wpdb;
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$instance_id = $wpdb->get_var(
 			"SELECT instance_id FROM {$wpdb->prefix}woocommerce_shipping_zone_methods WHERE method_id = 'centraldofrete' LIMIT 1"
 		);
@@ -831,6 +932,47 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		}
 
 		return get_option( 'woocommerce_centraldofrete_' . $instance_id . '_settings', [] );
+	}
+
+	/**
+	 * Settings of every enabled instance, for callers that have no shipping zone context.
+	 *
+	 * @return array[] One settings array per instance.
+	 */
+	public static function get_all_settings(): array {
+		$settings = [];
+
+		foreach ( self::get_enabled_instance_ids() as $instance_id ) {
+			$instance_settings = get_option( 'woocommerce_centraldofrete_' . $instance_id . '_settings', [] );
+
+			if ( ! empty( $instance_settings ) ) {
+				$settings[] = $instance_settings;
+			}
+		}
+
+		return $settings;
+	}
+
+	/**
+	 * There is no WooCommerce API to look up instances of one method across every zone
+	 * without instantiating all methods of all zones, which is heavy for a product page.
+	 * The query takes no user input and the result is reused for the rest of the request.
+	 */
+	private static function get_enabled_instance_ids(): array {
+		static $instance_ids = null;
+
+		if ( null !== $instance_ids ) {
+			return $instance_ids;
+		}
+
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$instance_ids = $wpdb->get_col(
+			"SELECT instance_id FROM {$wpdb->prefix}woocommerce_shipping_zone_methods WHERE method_id = 'centraldofrete' AND is_enabled = 1"
+		);
+
+		return $instance_ids;
 	}
 
 	/**

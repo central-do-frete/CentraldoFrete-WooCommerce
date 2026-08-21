@@ -1,0 +1,9 @@
+# Keep development files out of the distributed zip (git archive / GitHub source download).
+/.gitattributes export-ignore
+/.gitignore    export-ignore
+/composer.json export-ignore
+/composer.lock export-ignore
+/phpunit.xml   export-ignore
+/tests         export-ignore
+/images        export-ignore
+/.wordpress-org export-ignore

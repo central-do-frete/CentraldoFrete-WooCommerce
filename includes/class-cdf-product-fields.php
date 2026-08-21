@@ -46,6 +46,16 @@ class CDF_Product_Fields {
 	 * Save cargo type on product save.
 	 */
 	public static function save_field( int $post_id ): void {
+		$nonce = isset( $_POST['woocommerce_meta_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['woocommerce_meta_nonce'] ) ) : '';
+
+		if ( ! wp_verify_nonce( $nonce, 'woocommerce_save_data' ) ) {
+			return;
+		}
+
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return;
+		}
+
 		if ( ! isset( $_POST['cargo_type'] ) ) {
 			return;
 		}

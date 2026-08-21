@@ -20,6 +20,7 @@ class CDF_Loader {
 	private static function load_files(): void {
 		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-cache.php';
 		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-api-client.php';
+		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-shipping-class-rule.php';
 		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-shipping-method.php';
 		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-product-fields.php';
 		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-frontend-calculator.php';
