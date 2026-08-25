@@ -108,16 +108,17 @@ A seção **Restrição por classe de entrega** só aparece se a loja já tiver 
 central-do-frete/
 ├── woo-central-do-frete.php          # Bootstrap do plugin
 ├── includes/
-│   ├── class-cdf-loader.php          # Carregamento e hooks
-│   ├── class-cdf-shipping-method.php # Método de envio WooCommerce
-│   ├── class-cdf-shipping-class-rule.php # Regra de classe de entrega
-│   ├── class-cdf-api-client.php      # Cliente da API
-│   ├── class-cdf-cache.php           # Sistema de cache
-│   ├── class-cdf-product-fields.php  # Campos no produto
-│   └── class-cdf-frontend-calculator.php # Calculador na página do produto
+│   ├── class-cdfrete-loader.php          # Carregamento e hooks
+│   ├── class-cdfrete-shipping-method.php # Método de envio WooCommerce
+│   ├── class-cdfrete-shipping-class-rule.php # Regra de classe de entrega
+│   ├── class-cdfrete-api-client.php      # Cliente da API
+│   ├── class-cdfrete-cache.php           # Sistema de cache
+│   ├── class-cdfrete-product-fields.php  # Campos no produto
+│   └── class-cdfrete-frontend-calculator.php # Calculador na página do produto
 ├── assets/
-│   ├── js/cdf-calculator.js          # JavaScript do calculador
-│   └── css/cdf-calculator.css        # Estilos do calculador
+│   ├── js/cdfrete-calculator.js          # JavaScript do calculador
+│   ├── js/cdfrete-admin.js               # JavaScript da tela de configuração
+│   └── css/cdfrete-calculator.css        # Estilos do calculador
 ├── templates/
 │   └── product-shipping-calculator.php # Template do calculador
 ├── readme.txt                        # Ficha do diretório do WordPress.org

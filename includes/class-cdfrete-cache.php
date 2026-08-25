@@ -3,9 +3,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class CDF_Cache {
+class Cdfrete_Cache {
 
-	private const PREFIX = 'cdf_quote_';
+	private const PREFIX = 'cdfrete_quote_';
 
 	/**
 	 * Cache version - increment this when data structure changes.
@@ -16,13 +16,14 @@ class CDF_Cache {
 	/**
 	 * Generate a cache key from shipping parameters.
 	 */
-	public static function build_key( string $from, string $to, array $volumes, array $cargo_types ): string {
+	public static function build_key( string $from, string $to, array $volumes, array $cargo_types, ?array $recipient = null ): string {
 		$data = wp_json_encode( [
 			'v'           => self::VERSION,
 			'from'        => $from,
 			'to'          => $to,
 			'volumes'     => $volumes,
 			'cargo_types' => $cargo_types,
+			'recipient'   => $recipient,
 		] );
 		return self::PREFIX . md5( $data );
 	}

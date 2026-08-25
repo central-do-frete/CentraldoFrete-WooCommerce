@@ -9,7 +9,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * `allows()` is deliberately free of WordPress calls so the truth table can be unit
  * tested. Everything that touches WooCommerce lives in the *_from_* helpers.
  */
-class CDF_Shipping_Class_Rule {
+class Cdfrete_Shipping_Class_Rule {
 
 	public const RULE_ALL     = 'all';
 	public const RULE_INCLUDE = 'include';

@@ -4,7 +4,7 @@ Tags: shipping, freight, carriers, brazil, delivery
 Requires at least: 5.6
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.1.0
+Stable tag: 3.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -91,6 +91,18 @@ Turn on **Modo debug** in the method settings and check the logs under **WooComm
 
 == Changelog ==
 
+= 3.1.1 =
+* The cargo type button on the settings screen now loads its script through the WordPress script queue instead of printing it inline
+* Every class, constant, hook, handle and style name carries the longer cdfrete prefix, so the plugin cannot collide with another one
+* The per-product cargo type moved to a prefixed meta key; the previous key is still read, so saved products keep their setting
+* The access token and the shopper's name and tax id are no longer written to the WooCommerce log
+* Carrier names containing "&" are no longer shown escaped twice in the product page calculator
+* The product page calculator's own messages are now translatable
+* A quote is no longer returned for a product the shop has not published
+* Cart and checkout quotes now share the versioned cache key, so a cache format change clears them too
+* The postcode field has a proper label, results are announced to screen readers, and the decorative icon is hidden from them
+* Settings, shipping zones, saved cargo types and the data recorded on existing orders are untouched by this update
+
 = 3.1.0 =
 * Shipping class restriction, configured per shipping zone
 * The product page calculator follows the same restriction
@@ -110,6 +122,9 @@ Turn on **Modo debug** in the method settings and check the logs under **WooComm
 * Previous version
 
 == Upgrade Notice ==
+
+= 3.1.1 =
+Safe to update: your settings, shipping zones, product cargo types and existing orders are unchanged. Only if you wrote custom CSS for the product page calculator: its class names changed from cdf- to cdfrete- (for example .cdf-rates-table is now .cdfrete-rates-table).
 
 = 3.1.0 =
 Lets you choose which shipping classes Central do Frete serves. Nothing changes for existing setups: by default the method keeps quoting every class.

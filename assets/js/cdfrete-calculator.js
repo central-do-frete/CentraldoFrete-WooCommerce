@@ -1,16 +1,23 @@
 (function () {
   'use strict';
 
-  var form = document.getElementById('cdf-shipping-calculator');
+  var form = document.getElementById('cdfrete-shipping-calculator');
   if (!form) return;
 
-  var input = form.querySelector('.cdf-postcode-input');
-  var button = form.querySelector('.cdf-calculate-btn');
-  var resultsContainer = form.querySelector('.cdf-results');
+  // Every shopper-facing string comes from PHP so it goes through the plugin's translations.
+  var i18n = (window.cdfrete_params && cdfrete_params.i18n) || {};
+
+  function t(key, fallback) {
+    return i18n[key] || fallback;
+  }
+
+  var input = form.querySelector('.cdfrete-postcode-input');
+  var button = form.querySelector('.cdfrete-calculate-btn');
+  var resultsContainer = form.querySelector('.cdfrete-results');
 
   // Restore saved postcode.
   try {
-    var saved = sessionStorage.getItem('cdf_postcode');
+    var saved = sessionStorage.getItem('cdfrete_postcode');
     if (saved && input) input.value = saved;
   } catch (e) {}
 
@@ -33,65 +40,67 @@
   function calculate() {
     var postcode = input.value.replace(/\D/g, '');
     if (postcode.length !== 8) {
-      showError('Digite um CEP válido com 8 números.');
+      showError(t('invalidPostcode', 'Digite um CEP válido com 8 números.'));
       return;
     }
 
     // Save postcode.
-    try { sessionStorage.setItem('cdf_postcode', input.value); } catch (e) {}
+    try { sessionStorage.setItem('cdfrete_postcode', input.value); } catch (e) {}
 
     // Get quantity from the product page.
     var qtyInput = document.querySelector('input.qty, input[name="quantity"]');
     var quantity = qtyInput ? parseInt(qtyInput.value, 10) || 1 : 1;
 
     button.disabled = true;
-    button.textContent = 'Calculando...';
+    button.textContent = t('calculating', 'Calculando...');
     resultsContainer.innerHTML = '';
 
     var data = new FormData();
-    data.append('action', 'cdf_calculate_shipping');
-    data.append('nonce', cdf_params.nonce);
+    data.append('action', 'cdfrete_calculate_shipping');
+    data.append('nonce', cdfrete_params.nonce);
     data.append('postcode', postcode);
-    data.append('product_id', cdf_params.product_id);
+    data.append('product_id', cdfrete_params.product_id);
     data.append('quantity', quantity);
 
-    fetch(cdf_params.ajax_url, { method: 'POST', body: data })
+    fetch(cdfrete_params.ajax_url, { method: 'POST', body: data })
       .then(function (r) { return r.json(); })
       .then(function (res) {
         button.disabled = false;
-        button.textContent = 'Calcular';
+        button.textContent = t('calculate', 'Calcular');
 
         if (!res.success) {
-          showError(res.data && res.data.message ? res.data.message : 'Erro ao calcular frete.');
+          showError(res.data && res.data.message ? res.data.message : t('requestFailed', 'Erro ao calcular frete.'));
           return;
         }
 
         // Log debug info if present.
         if (res.data._debug) {
-          console.log('[CDF Debug]', res.data._debug);
+          console.log('[Central do Frete]', res.data._debug);
         }
 
         renderRates(res.data.rates);
       })
       .catch(function () {
         button.disabled = false;
-        button.textContent = 'Calcular';
-        showError('Erro de conexão. Tente novamente.');
+        button.textContent = t('calculate', 'Calcular');
+        showError(t('connectionError', 'Erro de conexão. Tente novamente.'));
       });
   }
 
   function showError(msg) {
-    resultsContainer.innerHTML = '<p class="cdf-error">' + escapeHtml(msg) + '</p>';
+    resultsContainer.innerHTML = '<p class="cdfrete-error">' + escapeHtml(msg) + '</p>';
   }
 
   function renderRates(rates) {
     if (!rates || rates.length === 0) {
-      showError('Nenhuma opção de frete disponível.');
+      showError(t('noRates', 'Nenhuma opção de frete disponível.'));
       return;
     }
 
-    var html = '<table class="cdf-rates-table">';
-    html += '<thead><tr><th>Transportadora</th><th>Prazo</th><th>Valor</th></tr></thead>';
+    var html = '<table class="cdfrete-rates-table">';
+    html += '<thead><tr><th>' + escapeHtml(t('carrierColumn', 'Transportadora')) +
+      '</th><th>' + escapeHtml(t('timeColumn', 'Prazo')) +
+      '</th><th>' + escapeHtml(t('priceColumn', 'Valor')) + '</th></tr></thead>';
     html += '<tbody>';
 
     for (var i = 0; i < rates.length; i++) {
@@ -102,14 +111,14 @@
       // Build carrier cell with optional logo.
       var carrierCell = '';
       if (r.logo) {
-        carrierCell += '<img src="' + r.logo + '" alt="" class="cdf-carrier-logo" /> ';
+        carrierCell += '<img src="' + r.logo + '" alt="" class="cdfrete-carrier-logo" /> ';
       }
       carrierCell += escapeHtml(name);
 
       html += '<tr>';
-      html += '<td class="cdf-carrier-cell">' + carrierCell + '</td>';
+      html += '<td class="cdfrete-carrier-cell">' + carrierCell + '</td>';
       html += '<td>' + escapeHtml(r.delivery_time) + '</td>';
-      html += '<td class="cdf-price-cell">R$ ' + escapeHtml(r.price) + '</td>';
+      html += '<td class="cdfrete-price-cell">R$ ' + escapeHtml(r.price) + '</td>';
       html += '</tr>';
     }
 

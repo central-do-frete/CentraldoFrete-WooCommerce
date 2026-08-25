@@ -3,7 +3,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class CDF_Product_Fields {
+class Cdfrete_Product_Fields {
+
+	/** Prefixed meta key holding the per-product cargo type. */
+	public const META_KEY = '_cdfrete_cargo_type';
+
+	/** Unprefixed key used up to 3.1.0, still read so saved products keep their cargo type. */
+	private const LEGACY_META_KEY = 'cargo_type';
 
 	public static function init(): void {
 		add_action( 'woocommerce_product_options_shipping', [ __CLASS__, 'render_field' ] );
@@ -16,7 +22,7 @@ class CDF_Product_Fields {
 	public static function render_field(): void {
 		global $post;
 
-		$cargo_types = CDF_Shipping_Method::get_cargo_types();
+		$cargo_types = Cdfrete_Shipping_Method::get_cargo_types();
 
 		// Show message if no cargo types loaded.
 		if ( empty( $cargo_types ) ) {
@@ -30,10 +36,10 @@ class CDF_Product_Fields {
 		}
 
 		$options = [ '' => __( 'Usar padrão do plugin', 'central-do-frete' ) ] + $cargo_types;
-		$current = get_post_meta( $post->ID, 'cargo_type', true );
+		$current = self::get_cargo_type( (int) $post->ID );
 
 		woocommerce_wp_select( [
-			'id'          => 'cargo_type',
+			'id'          => self::META_KEY,
 			'label'       => __( 'Tipo de Carga (Central do Frete)', 'central-do-frete' ),
 			'options'     => $options,
 			'value'       => $current,
@@ -56,11 +62,28 @@ class CDF_Product_Fields {
 			return;
 		}
 
-		if ( ! isset( $_POST['cargo_type'] ) ) {
+		if ( ! isset( $_POST[ self::META_KEY ] ) ) {
 			return;
 		}
 
-		$value = sanitize_text_field( wp_unslash( $_POST['cargo_type'] ) );
-		update_post_meta( $post_id, 'cargo_type', $value );
+		$value = sanitize_text_field( wp_unslash( $_POST[ self::META_KEY ] ) );
+		update_post_meta( $post_id, self::META_KEY, $value );
+
+		// The prefixed key is now authoritative, so the legacy one must not shadow it.
+		delete_post_meta( $post_id, self::LEGACY_META_KEY );
+	}
+
+	/**
+	 * Cargo type saved on a product, falling back to the unprefixed key written by
+	 * versions up to 3.1.0 so an existing store keeps quoting the right cargo type.
+	 */
+	public static function get_cargo_type( int $product_id ): string {
+		$value = (string) get_post_meta( $product_id, self::META_KEY, true );
+
+		if ( '' !== $value ) {
+			return $value;
+		}
+
+		return (string) get_post_meta( $product_id, self::LEGACY_META_KEY, true );
 	}
 }

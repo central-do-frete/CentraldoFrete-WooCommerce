@@ -5,7 +5,7 @@
  * Description: Cotação de frete em tempo real com múltiplas transportadoras via Central do Frete.
  * Author: Central do Frete
  * Author URI: https://centraldofrete.com
- * Version: 3.1.0
+ * Version: 3.1.1
  * Requires at least: 5.6
  * Requires PHP: 7.4
  * Requires Plugins: woocommerce
@@ -20,10 +20,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'CDF_VERSION', '3.1.0' );
-define( 'CDF_PLUGIN_FILE', __FILE__ );
-define( 'CDF_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
-define( 'CDF_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
+define( 'CDFRETE_VERSION', '3.1.1' );
+define( 'CDFRETE_PLUGIN_FILE', __FILE__ );
+define( 'CDFRETE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
+define( 'CDFRETE_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
 /**
  * Declare HPOS compatibility.
@@ -48,6 +48,6 @@ add_action( 'plugins_loaded', function () {
 		return;
 	}
 
-	require_once CDF_PLUGIN_DIR . 'includes/class-cdf-loader.php';
-	CDF_Loader::init();
+	require_once CDFRETE_PLUGIN_DIR . 'includes/class-cdfrete-loader.php';
+	Cdfrete_Loader::init();
 } );
