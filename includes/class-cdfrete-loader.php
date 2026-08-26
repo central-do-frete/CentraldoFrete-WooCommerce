@@ -3,7 +3,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class CDF_Loader {
+class Cdfrete_Loader {
 
 	private static bool $loaded = false;
 
@@ -18,29 +18,32 @@ class CDF_Loader {
 	}
 
 	private static function load_files(): void {
-		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-cache.php';
-		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-api-client.php';
-		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-shipping-class-rule.php';
-		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-shipping-method.php';
-		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-product-fields.php';
-		require_once CDF_PLUGIN_DIR . 'includes/class-cdf-frontend-calculator.php';
+		require_once CDFRETE_PLUGIN_DIR . 'includes/class-cdfrete-cache.php';
+		require_once CDFRETE_PLUGIN_DIR . 'includes/class-cdfrete-api-client.php';
+		require_once CDFRETE_PLUGIN_DIR . 'includes/class-cdfrete-shipping-class-rule.php';
+		require_once CDFRETE_PLUGIN_DIR . 'includes/class-cdfrete-shipping-method.php';
+		require_once CDFRETE_PLUGIN_DIR . 'includes/class-cdfrete-product-fields.php';
+		require_once CDFRETE_PLUGIN_DIR . 'includes/class-cdfrete-frontend-calculator.php';
 	}
 
 	private static function register_hooks(): void {
 		// Register shipping method.
 		add_filter( 'woocommerce_shipping_methods', function ( $methods ) {
-			$methods['centraldofrete'] = 'CDF_Shipping_Method';
+			$methods['centraldofrete'] = 'Cdfrete_Shipping_Method';
 			return $methods;
 		} );
 
 		// Product fields.
-		CDF_Product_Fields::init();
+		Cdfrete_Product_Fields::init();
 
 		// Frontend calculator.
-		CDF_Frontend_Calculator::init();
+		Cdfrete_Frontend_Calculator::init();
 
 		// Admin AJAX handlers (must be registered globally, not just when shipping method is instantiated).
-		add_action( 'wp_ajax_cdf_refresh_cargo_types', [ 'CDF_Shipping_Method', 'ajax_refresh_cargo_types' ] );
+		add_action( 'wp_ajax_cdfrete_refresh_cargo_types', [ 'Cdfrete_Shipping_Method', 'ajax_refresh_cargo_types' ] );
+
+		// Admin assets for the shipping method settings screen.
+		add_action( 'admin_enqueue_scripts', [ 'Cdfrete_Shipping_Method', 'register_admin_assets' ] );
 
 		// Display carrier logo in shipping label.
 		add_filter( 'woocommerce_cart_shipping_method_full_label', [ __CLASS__, 'add_carrier_logo_to_label' ], 10, 2 );
@@ -69,7 +72,7 @@ class CDF_Loader {
 
 		// Build logo HTML.
 		$logo_html = sprintf(
-			'<img src="%s" alt="" class="cdf-carrier-logo" style="width: 50px; height: 20px; object-fit: contain; vertical-align: middle; margin-right: 8px; background: #fff; border-radius: 2px;" />',
+			'<img src="%s" alt="" class="cdfrete-carrier-logo" style="width: 50px; height: 20px; object-fit: contain; vertical-align: middle; margin-right: 8px; background: #fff; border-radius: 2px;" />',
 			esc_url( $logo_url )
 		);
 

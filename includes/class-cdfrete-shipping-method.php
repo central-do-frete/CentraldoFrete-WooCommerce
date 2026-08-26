@@ -3,7 +3,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class CDF_Shipping_Method extends WC_Shipping_Method {
+class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 
 	private const CARGO_TYPES_OPTION = 'centraldofrete_cargotypes';
 
@@ -178,7 +178,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 			],
 			'refresh_cargo_types' => [
 				'title'       => __( 'Carregar tipos disponíveis', 'central-do-frete' ),
-				'type'        => 'cdf_refresh_button',
+				'type'        => 'cdfrete_refresh_button',
 				'description' => $has_cargo_types
 					? sprintf(
 						/* translators: %d: number of cargo types */
@@ -256,11 +256,11 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 			'shipping_class_rule' => [
 				'title'       => __( 'Quais classes a Central do Frete atende?', 'central-do-frete' ),
 				'type'        => 'select',
-				'default'     => CDF_Shipping_Class_Rule::RULE_ALL,
+				'default'     => Cdfrete_Shipping_Class_Rule::RULE_ALL,
 				'options'     => [
-					CDF_Shipping_Class_Rule::RULE_ALL     => __( 'Todas as classes', 'central-do-frete' ),
-					CDF_Shipping_Class_Rule::RULE_INCLUDE => __( 'Apenas as classes selecionadas', 'central-do-frete' ),
-					CDF_Shipping_Class_Rule::RULE_EXCLUDE => __( 'Todas, exceto as selecionadas', 'central-do-frete' ),
+					Cdfrete_Shipping_Class_Rule::RULE_ALL     => __( 'Todas as classes', 'central-do-frete' ),
+					Cdfrete_Shipping_Class_Rule::RULE_INCLUDE => __( 'Apenas as classes selecionadas', 'central-do-frete' ),
+					Cdfrete_Shipping_Class_Rule::RULE_EXCLUDE => __( 'Todas, exceto as selecionadas', 'central-do-frete' ),
 				],
 			],
 			'shipping_classes' => [
@@ -294,22 +294,61 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		}
 
 		if ( ! empty( $options ) ) {
-			$options[ CDF_Shipping_Class_Rule::NO_CLASS ] = __( 'Produtos sem classe de entrega', 'central-do-frete' );
+			$options[ Cdfrete_Shipping_Class_Rule::NO_CLASS ] = __( 'Produtos sem classe de entrega', 'central-do-frete' );
 		}
 
 		return $options;
 	}
 
 	/**
+	 * Register the admin script so a settings screen can enqueue it when the cargo
+	 * type button is actually rendered.
+	 */
+	public static function register_admin_assets(): void {
+		wp_register_script(
+			'cdfrete-admin',
+			CDFRETE_PLUGIN_URL . 'assets/js/cdfrete-admin.js',
+			[ 'jquery' ],
+			CDFRETE_VERSION,
+			true
+		);
+	}
+
+	/**
+	 * Enqueue the admin script and hand it the data the handler needs.
+	 */
+	private static function enqueue_admin_assets(): void {
+		if ( ! wp_script_is( 'cdfrete-admin', 'registered' ) ) {
+			self::register_admin_assets();
+		}
+
+		wp_localize_script(
+			'cdfrete-admin',
+			'cdfreteAdminParams',
+			[
+				'ajaxUrl'         => admin_url( 'admin-ajax.php' ),
+				'nonce'           => wp_create_nonce( 'cdfrete_refresh_cargo_types' ),
+				'loading'         => __( 'Carregando...', 'central-do-frete' ),
+				'buttonLabel'     => __( 'Atualizar Tipos de Carga', 'central-do-frete' ),
+				'error'           => __( 'Erro ao atualizar.', 'central-do-frete' ),
+				'connectionError' => __( 'Erro de conexão.', 'central-do-frete' ),
+			]
+		);
+
+		wp_enqueue_script( 'cdfrete-admin' );
+	}
+
+	/**
 	 * Generate custom button field for refreshing cargo types.
 	 */
-	public function generate_cdf_refresh_button_html( $key, $data ): string {
-		$field_key = $this->get_field_key( $key );
-		$defaults  = [
+	public function generate_cdfrete_refresh_button_html( $key, $data ): string {
+		$defaults = [
 			'title'       => '',
 			'description' => '',
 		];
 		$data = wp_parse_args( $data, $defaults );
+
+		self::enqueue_admin_assets();
 
 		ob_start();
 		?>
@@ -318,35 +357,15 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 				<label><?php echo wp_kses_post( $data['title'] ); ?></label>
 			</th>
 			<td class="forminp">
-				<button type="button" class="button" id="cdf-refresh-cargo-types">
+				<button
+					type="button"
+					class="button"
+					id="cdfrete-refresh-cargo-types"
+					data-instance-id="<?php echo esc_attr( (string) $this->instance_id ); ?>"
+				>
 					<?php esc_html_e( 'Atualizar Tipos de Carga', 'central-do-frete' ); ?>
 				</button>
-				<p class="description" id="cdf-cargo-types-status"><?php echo wp_kses_post( $data['description'] ); ?></p>
-				<script>
-				jQuery(function($) {
-					$('#cdf-refresh-cargo-types').on('click', function() {
-						var $btn = $(this);
-						var $status = $('#cdf-cargo-types-status');
-						$btn.prop('disabled', true).text('Carregando...');
-						$.post(ajaxurl, {
-							action: 'cdf_refresh_cargo_types',
-							nonce: '<?php echo esc_js( wp_create_nonce( 'cdf_refresh_cargo_types' ) ); ?>',
-							instance_id: '<?php echo esc_js( $this->instance_id ); ?>'
-						}, function(response) {
-							$btn.prop('disabled', false).text('Atualizar Tipos de Carga');
-							if (response.success) {
-								$status.text(response.data.message);
-								location.reload();
-							} else {
-								$status.text(response.data.message || 'Erro ao atualizar.');
-							}
-						}).fail(function() {
-							$btn.prop('disabled', false).text('Atualizar Tipos de Carga');
-							$status.text('Erro de conexão.');
-						});
-					});
-				});
-				</script>
+				<p class="description" id="cdfrete-cargo-types-status"><?php echo wp_kses_post( $data['description'] ); ?></p>
 			</td>
 		</tr>
 		<?php
@@ -357,7 +376,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 	 * AJAX handler for refreshing cargo types.
 	 */
 	public static function ajax_refresh_cargo_types(): void {
-		check_ajax_referer( 'cdf_refresh_cargo_types', 'nonce' );
+		check_ajax_referer( 'cdfrete_refresh_cargo_types', 'nonce' );
 
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Permissão negada.', 'central-do-frete' ) ] );
@@ -367,17 +386,17 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		$settings    = get_option( 'woocommerce_centraldofrete_' . $instance_id . '_settings', [] );
 		$token       = $settings['token'] ?? '';
 
-		CDF_API_Client::log( 'info', sprintf(
-			'[ADMIN] Atualizando tipos de carga - Instance ID: %d, Token: %s***',
+		Cdfrete_API_Client::log( 'info', sprintf(
+			'[ADMIN] Atualizando tipos de carga - Instance ID: %d, Token: %s',
 			$instance_id,
-			substr( $token, 0, 10 )
+			empty( $token ) ? 'não configurado' : 'configurado'
 		) );
 
 		if ( empty( $token ) ) {
 			wp_send_json_error( [ 'message' => __( 'Token não configurado. Salve as configurações primeiro.', 'central-do-frete' ) ] );
 		}
 
-		$client = new CDF_API_Client( $token );
+		$client = new Cdfrete_API_Client( $token );
 		$types  = $client->get_cargo_types();
 
 		if ( $types === false ) {
@@ -394,7 +413,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 
 		update_option( self::CARGO_TYPES_OPTION, $types, false );
 
-		CDF_API_Client::log( 'info', sprintf( '[ADMIN] %d tipos de carga salvos', count( $types ) ) );
+		Cdfrete_API_Client::log( 'info', sprintf( '[ADMIN] %d tipos de carga salvos', count( $types ) ) );
 
 		wp_send_json_success( [
 			/* translators: %d: number of cargo types loaded from the API */
@@ -412,26 +431,27 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		}
 
 		$settings     = $this->get_shipping_class_settings();
-		$cart_classes = CDF_Shipping_Class_Rule::classes_from_package( $package );
-		$available    = CDF_Shipping_Class_Rule::allows_for_settings( $cart_classes, $settings );
+		$cart_classes = Cdfrete_Shipping_Class_Rule::classes_from_package( $package );
+		$available    = Cdfrete_Shipping_Class_Rule::allows_for_settings( $cart_classes, $settings );
 
 		if ( ! $available ) {
-			CDF_API_Client::log( 'debug', sprintf(
+			Cdfrete_API_Client::log( 'debug', sprintf(
 				'[SHIP] Carrinho fora da restrição de classe de entrega - Regra: %s, Classes do carrinho: [%s]',
 				$settings['shipping_class_rule'],
 				implode( ', ', $cart_classes ) ?: 'N/A'
 			) );
 		}
 
+		// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- mirrors the WC_Shipping_Method core filter for this method id, so integrations keep working.
 		return apply_filters( 'woocommerce_shipping_centraldofrete_is_available', $available, $package, $this );
 	}
 
 	/**
-	 * Shipping class restriction as `CDF_Shipping_Class_Rule` reads it.
+	 * Shipping class restriction as `Cdfrete_Shipping_Class_Rule` reads it.
 	 */
 	private function get_shipping_class_settings(): array {
 		return [
-			'shipping_class_rule'   => $this->get_option( 'shipping_class_rule', CDF_Shipping_Class_Rule::RULE_ALL ),
+			'shipping_class_rule'   => $this->get_option( 'shipping_class_rule', Cdfrete_Shipping_Class_Rule::RULE_ALL ),
 			'shipping_classes'      => (array) $this->get_option( 'shipping_classes', [] ),
 			'shipping_class_strict' => $this->get_option( 'shipping_class_strict', 'no' ),
 		];
@@ -445,14 +465,14 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 
 		$token = $this->get_option( 'token' );
 		if ( empty( $token ) ) {
-			CDF_API_Client::log( 'error', '[SHIP] Token não configurado.' );
+			Cdfrete_API_Client::log( 'error', '[SHIP] Token não configurado.' );
 			return;
 		}
 
 		$from = preg_replace( '/\D/', '', get_option( 'woocommerce_store_postcode', '' ) );
 		$to   = preg_replace( '/\D/', '', $package['destination']['postcode'] ?? '' );
 
-		CDF_API_Client::log( 'info', sprintf(
+		Cdfrete_API_Client::log( 'info', sprintf(
 			'[SHIP] Iniciando cotação - Origem: %s, Destino: %s, Itens: %d',
 			$from ?: 'N/A',
 			$to ?: 'N/A',
@@ -460,17 +480,17 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		) );
 
 		if ( empty( $from ) ) {
-			CDF_API_Client::log( 'warning', '[SHIP] CEP de origem não configurado na loja' );
+			Cdfrete_API_Client::log( 'warning', '[SHIP] CEP de origem não configurado na loja' );
 			return;
 		}
 
 		if ( empty( $to ) ) {
-			CDF_API_Client::log( 'debug', '[SHIP] CEP de destino não informado (aguardando input do cliente)' );
+			Cdfrete_API_Client::log( 'debug', '[SHIP] CEP de destino não informado (aguardando input do cliente)' );
 			return;
 		}
 
 		if ( ( $package['destination']['country'] ?? 'BR' ) !== 'BR' ) {
-			CDF_API_Client::log( 'debug', sprintf(
+			Cdfrete_API_Client::log( 'debug', sprintf(
 				'[SHIP] País não suportado: %s',
 				$package['destination']['country'] ?? 'N/A'
 			) );
@@ -488,7 +508,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		$default_weight     = $this->fix_decimal( $this->get_option( 'default_weight', '0.3' ) );
 		$default_cargo_type = $this->get_option( 'default_cargo_type', '' );
 
-		CDF_API_Client::log( 'debug', sprintf(
+		Cdfrete_API_Client::log( 'debug', sprintf(
 			'[SHIP] Dimensões padrão - H: %.2f, W: %.2f, L: %.2f, Peso: %.2fkg, Carga: %s',
 			$default_height,
 			$default_width,
@@ -515,7 +535,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 			];
 
 			$product_id = $product->get_id();
-			$cargo_type = get_post_meta( $product_id, 'cargo_type', true );
+			$cargo_type = Cdfrete_Product_Fields::get_cargo_type( (int) $product_id );
 			if ( empty( $cargo_type ) ) {
 				$cargo_type = $default_cargo_type;
 			}
@@ -525,7 +545,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 
 			$invoice += (float) $product->get_price() * $qty;
 
-			CDF_API_Client::log( 'debug', sprintf(
+			Cdfrete_API_Client::log( 'debug', sprintf(
 				'[SHIP] Produto #%d: %s - Qtd: %d, H: %.2f, W: %.2f, L: %.2f, Peso: %.2fkg, Carga: %s, Preço: R$ %.2f',
 				$product_id,
 				$product->get_name(),
@@ -540,34 +560,27 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		}
 
 		if ( empty( $volumes ) ) {
-			CDF_API_Client::log( 'warning', '[SHIP] Nenhum volume no pacote' );
+			Cdfrete_API_Client::log( 'warning', '[SHIP] Nenhum volume no pacote' );
 			return;
 		}
 
 		// Build recipient info.
 		$recipient = $this->get_recipient_info( $package );
 
-		CDF_API_Client::log( 'debug', sprintf(
+		Cdfrete_API_Client::log( 'debug', sprintf(
 			'[SHIP] Destinatário: %s, NF: R$ %.2f, Tipos carga: [%s]',
-			$recipient ? substr( $recipient['document'], 0, 3 ) . '***' : 'N/A',
+			$recipient ? 'identificado' : 'N/A',
 			$invoice,
 			implode( ', ', $cargo_types ) ?: 'N/A'
 		) );
 
-		// Check cache (include recipient in key if present).
-		$cache_data = [
-			'from'        => $from,
-			'to'          => $to,
-			'volumes'     => $volumes,
-			'cargo_types' => $cargo_types,
-			'recipient'   => $recipient,
-		];
-		$cache_key = 'cdf_quote_' . md5( wp_json_encode( $cache_data ) );
-		$cached    = CDF_Cache::get( $cache_key );
+		// One builder for both quoting paths, so the cache version invalidates the cart too.
+		$cache_key = Cdfrete_Cache::build_key( $from, $to, $volumes, $cargo_types, $recipient );
+		$cached    = Cdfrete_Cache::get( $cache_key );
 
 		if ( $cached !== false ) {
 			$elapsed = round( ( microtime( true ) - $start_time ) * 1000, 2 );
-			CDF_API_Client::log( 'info', sprintf(
+			Cdfrete_API_Client::log( 'info', sprintf(
 				'[SHIP] Cache HIT - Key: %s..., %d opções, %.2fms',
 				substr( $cache_key, 0, 25 ),
 				count( $cached ),
@@ -577,36 +590,36 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 			return;
 		}
 
-		CDF_API_Client::log( 'info', '[SHIP] Cache MISS - Consultando API Central do Frete' );
+		Cdfrete_API_Client::log( 'info', '[SHIP] Cache MISS - Consultando API Central do Frete' );
 
 		// Fetch from API.
 		$api_start = microtime( true );
 		$timeout   = (int) $this->get_option( 'api_timeout', 15 );
-		$client    = new CDF_API_Client( $token, $timeout );
+		$client    = new Cdfrete_API_Client( $token, $timeout );
 
 		$services = $client->get_quotation( $from, $to, $volumes, $cargo_types, $invoice, $recipient );
 
 		$api_elapsed = round( ( microtime( true ) - $api_start ) * 1000, 2 );
 
 		if ( $services === false ) {
-			CDF_API_Client::log( 'error', sprintf(
+			Cdfrete_API_Client::log( 'error', sprintf(
 				'[SHIP] Falha na API após %.2fms',
 				$api_elapsed
 			) );
 			return;
 		}
 
-		CDF_API_Client::log( 'info', sprintf(
+		Cdfrete_API_Client::log( 'info', sprintf(
 			'[SHIP] API retornou %d opções em %.2fms',
 			count( $services ),
 			$api_elapsed
 		) );
 
 		// Cache results.
-		$ttl = CDF_Cache::ttl_from_setting( $this->get_option( 'cache_ttl', '1h' ) );
-		CDF_Cache::set( $cache_key, $services, $ttl );
+		$ttl = Cdfrete_Cache::ttl_from_setting( $this->get_option( 'cache_ttl', '1h' ) );
+		Cdfrete_Cache::set( $cache_key, $services, $ttl );
 
-		CDF_API_Client::log( 'debug', sprintf(
+		Cdfrete_API_Client::log( 'debug', sprintf(
 			'[SHIP] Cache salvo - Key: %s..., TTL: %ds',
 			substr( $cache_key, 0, 25 ),
 			$ttl
@@ -622,7 +635,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		$customer = WC()->customer;
 
 		if ( ! $customer ) {
-			CDF_API_Client::log( 'debug', '[SHIP] Destinatário: WC()->customer não disponível' );
+			Cdfrete_API_Client::log( 'debug', '[SHIP] Destinatário: WC()->customer não disponível' );
 			return null;
 		}
 
@@ -642,17 +655,14 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		}
 
 		if ( empty( $document ) ) {
-			CDF_API_Client::log( 'debug', '[SHIP] Destinatário: CPF/CNPJ não encontrado no cliente' );
+			Cdfrete_API_Client::log( 'debug', '[SHIP] Destinatário: CPF/CNPJ não encontrado no cliente' );
 			return null;
 		}
 
 		$name = trim( $customer->get_billing_first_name() . ' ' . $customer->get_billing_last_name() );
 
-		CDF_API_Client::log( 'debug', sprintf(
-			'[SHIP] Destinatário encontrado: %s*** (%s)',
-			substr( preg_replace( '/\D/', '', $document ), 0, 3 ),
-			$name ?: 'sem nome'
-		) );
+		// The tax id and the shopper's name are deliberately left out of the log.
+		Cdfrete_API_Client::log( 'debug', '[SHIP] Destinatário identificado e enviado na cotação' );
 
 		return [
 			'document' => preg_replace( '/\D/', '', $document ),
@@ -673,7 +683,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		$hide_no_pickup    = $this->get_option( 'hide_no_pickup', 'no' ) === 'yes';
 		$display_limit     = $this->get_option( 'display_limit', 'all' );
 
-		CDF_API_Client::log( 'debug', sprintf(
+		Cdfrete_API_Client::log( 'debug', sprintf(
 			'[SHIP] Configurações - Prazo: %s, Logo: %s, Dias+: %d, Taxa: R$ %.2f, Ocultar Balcão: %s, Limite: %s',
 			$display_date ? 'sim' : 'não',
 			$show_carrier_logo ? 'sim' : 'não',
@@ -685,7 +695,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 
 		// Log all services before filtering.
 		foreach ( $services as $idx => $s ) {
-			CDF_API_Client::log( 'debug', sprintf(
+			Cdfrete_API_Client::log( 'debug', sprintf(
 				'[SHIP] Opção %d: %s %s - R$ %.2f, %d dias, dispatch: %s',
 				$idx + 1,
 				$s['shipping_carrier'] ?? 'N/A',
@@ -704,7 +714,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 			} );
 			$services = array_values( $services );
 
-			CDF_API_Client::log( 'debug', sprintf(
+			Cdfrete_API_Client::log( 'debug', sprintf(
 				'[SHIP] Filtro Balcão aplicado: %d -> %d opções',
 				$before_filter,
 				count( $services )
@@ -720,7 +730,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		$before_limit = count( $services );
 		$services     = $this->apply_display_limit( $services, $display_limit );
 
-		CDF_API_Client::log( 'debug', sprintf(
+		Cdfrete_API_Client::log( 'debug', sprintf(
 			'[SHIP] Limite "%s" aplicado: %d -> %d opções',
 			$display_limit,
 			$before_limit,
@@ -728,7 +738,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		) );
 
 		if ( empty( $services ) ) {
-			CDF_API_Client::log( 'warning', '[SHIP] Todas as opções foram filtradas - nenhuma taxa adicionada' );
+			Cdfrete_API_Client::log( 'warning', '[SHIP] Todas as opções foram filtradas - nenhuma taxa adicionada' );
 			return;
 		}
 
@@ -754,6 +764,9 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 			$cost = $service['price'] + $handling_fee;
 
 			$meta_data = [
+				// These are order data, not global names: WooCommerce copies them onto the
+				// order's shipping line, where merchants and support read them back. They keep
+				// their original spelling so an upgrade does not split orders into two eras.
 				'CDF_ID'        => $service['id'],
 				'CDF_QUOTATION' => $service['quotation_code'] ?? '',
 				'CDF_DISPATCH'  => $service['dispatch'] ?? '',
@@ -764,6 +777,8 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 				$meta_data['CDF_LOGO'] = $service['carrier_logo'];
 			}
 
+			// Kept as CDF_ for the same reason as the meta above: merchants filter on this
+			// rate id to hide or rename a carrier, and it is already namespaced by the method id.
 			$rate_id = $this->get_rate_id( 'CDF_' . sanitize_title( $service['shipping_carrier'] . '_' . $service['service_type'] ) );
 
 			$this->add_rate( [
@@ -773,7 +788,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 				'meta_data' => $meta_data,
 			] );
 
-			CDF_API_Client::log( 'debug', sprintf(
+			Cdfrete_API_Client::log( 'debug', sprintf(
 				'[SHIP] Taxa adicionada: %s = R$ %.2f (%s)',
 				$rate_id,
 				$cost,
@@ -784,7 +799,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 		// Log completion time if start_time provided.
 		if ( $start_time !== null ) {
 			$elapsed = round( ( microtime( true ) - $start_time ) * 1000, 2 );
-			CDF_API_Client::log( 'info', sprintf(
+			Cdfrete_API_Client::log( 'info', sprintf(
 				'[SHIP] Concluído em %.2fms - %d de %d opções retornadas',
 				$elapsed,
 				count( $services ),
@@ -817,7 +832,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 					}
 				}
 
-				CDF_API_Client::log( 'debug', sprintf(
+				Cdfrete_API_Client::log( 'debug', sprintf(
 					'[SHIP] economic_express - Econômica: %s %s (R$ %.2f, %d dias, ID: %s) | Rápida: %s %s (R$ %.2f, %d dias, ID: %s)',
 					$cheapest['shipping_carrier'],
 					$cheapest['service_type'],
@@ -834,7 +849,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 				// If they're the same service, return just one.
 				// Use == instead of === to handle int/string type differences.
 				if ( $cheapest['id'] == $fastest['id'] ) {
-					CDF_API_Client::log( 'debug', '[SHIP] economic_express - Mesma opção (mais barata = mais rápida)' );
+					Cdfrete_API_Client::log( 'debug', '[SHIP] economic_express - Mesma opção (mais barata = mais rápida)' );
 					return [ $cheapest ];
 				}
 
@@ -879,7 +894,7 @@ class CDF_Shipping_Method extends WC_Shipping_Method {
 			return;
 		}
 
-		$client    = new CDF_API_Client( $token );
+		$client    = new Cdfrete_API_Client( $token );
 		$new_types = $client->get_cargo_types();
 
 		if ( $new_types !== false ) {

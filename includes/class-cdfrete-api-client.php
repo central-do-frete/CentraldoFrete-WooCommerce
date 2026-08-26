@@ -3,7 +3,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class CDF_API_Client {
+class Cdfrete_API_Client {
 
 	private const API_URL = 'https://api.centraldofrete.com/';
 
@@ -135,7 +135,7 @@ class CDF_API_Client {
 		self::log( 'debug', sprintf( '[CARGO] HTTP %d - Body: %s', $code, substr( $raw_body, 0, 500 ) ) );
 
 		if ( $code !== 200 ) {
-			self::log( 'error', sprintf( '[CARGO] API cargo-type retornou HTTP %d: %s', $code, $raw_body ) );
+			self::log( 'error', sprintf( '[CARGO] API cargo-type retornou HTTP %d: %s', $code, self::excerpt( $raw_body ) ) );
 			return false;
 		}
 
@@ -193,7 +193,13 @@ class CDF_API_Client {
 			];
 		}
 
-		self::log( 'info', 'Solicitando cotação: ' . wp_json_encode( $payload ) );
+		$loggable = $payload;
+		if ( isset( $loggable['recipient'] ) ) {
+			// The recipient block carries the shopper's tax id and full name. Neither belongs in a log file.
+			$loggable['recipient'] = '[redigido]';
+		}
+
+		self::log( 'info', 'Solicitando cotação: ' . wp_json_encode( $loggable ) );
 
 		// Step 1: Create quotation.
 		$response = $this->post( 'v1/quotation', $payload );
@@ -205,13 +211,13 @@ class CDF_API_Client {
 
 		$code = wp_remote_retrieve_response_code( $response );
 		if ( $code < 200 || $code >= 300 ) {
-			self::log( 'error', sprintf( 'API quotation retornou HTTP %d: %s', $code, wp_remote_retrieve_body( $response ) ) );
+			self::log( 'error', sprintf( 'API quotation retornou HTTP %d: %s', $code, self::excerpt( wp_remote_retrieve_body( $response ) ) ) );
 			return false;
 		}
 
 		$body = json_decode( wp_remote_retrieve_body( $response ), true );
 		if ( empty( $body['code'] ) ) {
-			self::log( 'error', 'Resposta da cotação sem código: ' . wp_remote_retrieve_body( $response ) );
+			self::log( 'error', 'Resposta da cotação sem código: ' . self::excerpt( wp_remote_retrieve_body( $response ) ) );
 			return false;
 		}
 
@@ -269,10 +275,20 @@ class CDF_API_Client {
 	/**
 	 * Log a message to WooCommerce logs.
 	 */
+	/**
+	 * Bound a raw API response before it reaches a log file. Error-level lines are written
+	 * whether or not debug mode is on, and a response body can be arbitrarily large.
+	 */
+	private static function excerpt( string $body, int $limit = 500 ): string {
+		$body = trim( $body );
+
+		return strlen( $body ) > $limit ? substr( $body, 0, $limit ) . '... [truncado]' : $body;
+	}
+
 	public static function log( string $level, string $message ): void {
 		// Check if debug mode is enabled (except for errors which always log).
 		if ( $level !== 'error' && $level !== 'warning' ) {
-			$settings = CDF_Shipping_Method::get_settings();
+			$settings = Cdfrete_Shipping_Method::get_settings();
 			if ( ( $settings['debug'] ?? 'no' ) !== 'yes' ) {
 				return;
 			}

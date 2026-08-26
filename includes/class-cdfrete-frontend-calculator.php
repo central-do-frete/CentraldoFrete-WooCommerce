@@ -3,19 +3,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class CDF_Frontend_Calculator {
+class Cdfrete_Frontend_Calculator {
 
 	public static function init(): void {
 		add_action( 'woocommerce_after_add_to_cart_form', [ __CLASS__, 'render_calculator' ] );
-		add_action( 'wp_ajax_cdf_calculate_shipping', [ __CLASS__, 'ajax_calculate' ] );
-		add_action( 'wp_ajax_nopriv_cdf_calculate_shipping', [ __CLASS__, 'ajax_calculate' ] );
+		add_action( 'wp_ajax_cdfrete_calculate_shipping', [ __CLASS__, 'ajax_calculate' ] );
+		add_action( 'wp_ajax_nopriv_cdfrete_calculate_shipping', [ __CLASS__, 'ajax_calculate' ] );
 	}
 
 	/**
 	 * Render the shipping calculator on the product page.
 	 */
 	public static function render_calculator(): void {
-		$settings = CDF_Shipping_Method::get_settings();
+		$settings = Cdfrete_Shipping_Method::get_settings();
 
 		if ( empty( $settings['token'] ) ) {
 			return;
@@ -33,28 +33,39 @@ class CDF_Frontend_Calculator {
 
 		// Enqueue assets.
 		wp_enqueue_style(
-			'cdf-calculator',
-			CDF_PLUGIN_URL . 'assets/css/cdf-calculator.css',
+			'cdfrete-calculator',
+			CDFRETE_PLUGIN_URL . 'assets/css/cdfrete-calculator.css',
 			[],
-			CDF_VERSION
+			CDFRETE_VERSION
 		);
 
 		wp_enqueue_script(
-			'cdf-calculator',
-			CDF_PLUGIN_URL . 'assets/js/cdf-calculator.js',
+			'cdfrete-calculator',
+			CDFRETE_PLUGIN_URL . 'assets/js/cdfrete-calculator.js',
 			[],
-			CDF_VERSION,
+			CDFRETE_VERSION,
 			true
 		);
 
-		wp_localize_script( 'cdf-calculator', 'cdf_params', [
+		wp_localize_script( 'cdfrete-calculator', 'cdfrete_params', [
 			'ajax_url'   => admin_url( 'admin-ajax.php' ),
-			'nonce'      => wp_create_nonce( 'cdf_calculate_nonce' ),
+			'nonce'      => wp_create_nonce( 'cdfrete_calculate_nonce' ),
 			'product_id' => get_the_ID(),
+			'i18n'       => [
+				'calculate'       => __( 'Calcular', 'central-do-frete' ),
+				'calculating'     => __( 'Calculando...', 'central-do-frete' ),
+				'invalidPostcode' => __( 'Digite um CEP válido com 8 números.', 'central-do-frete' ),
+				'requestFailed'   => __( 'Erro ao calcular frete.', 'central-do-frete' ),
+				'connectionError' => __( 'Erro de conexão. Tente novamente.', 'central-do-frete' ),
+				'noRates'         => __( 'Nenhuma opção de frete disponível.', 'central-do-frete' ),
+				'carrierColumn'   => __( 'Transportadora', 'central-do-frete' ),
+				'timeColumn'      => __( 'Prazo', 'central-do-frete' ),
+				'priceColumn'     => __( 'Valor', 'central-do-frete' ),
+			],
 		] );
 
 		// Load template.
-		$template = CDF_PLUGIN_DIR . 'templates/product-shipping-calculator.php';
+		$template = CDFRETE_PLUGIN_DIR . 'templates/product-shipping-calculator.php';
 		if ( file_exists( $template ) ) {
 			include $template;
 		}
@@ -66,13 +77,13 @@ class CDF_Frontend_Calculator {
 	public static function ajax_calculate(): void {
 		$start_time = microtime( true );
 
-		check_ajax_referer( 'cdf_calculate_nonce', 'nonce' );
+		check_ajax_referer( 'cdfrete_calculate_nonce', 'nonce' );
 
 		$postcode   = preg_replace( '/\D/', '', sanitize_text_field( wp_unslash( $_POST['postcode'] ?? '' ) ) );
 		$product_id = absint( $_POST['product_id'] ?? 0 );
 		$quantity   = max( 1, absint( $_POST['quantity'] ?? 1 ) );
 
-		CDF_API_Client::log( 'info', sprintf(
+		Cdfrete_API_Client::log( 'info', sprintf(
 			'[CALC] Iniciando cotação - Produto: %d, CEP: %s, Qtd: %d',
 			$product_id,
 			$postcode,
@@ -80,34 +91,43 @@ class CDF_Frontend_Calculator {
 		) );
 
 		if ( strlen( $postcode ) !== 8 ) {
-			CDF_API_Client::log( 'warning', '[CALC] CEP inválido: ' . $postcode );
+			Cdfrete_API_Client::log( 'warning', '[CALC] CEP inválido: ' . $postcode );
 			wp_send_json_error( [ 'message' => __( 'CEP inválido. Digite 8 números.', 'central-do-frete' ) ] );
 		}
 
 		$product = wc_get_product( $product_id );
 		if ( ! $product ) {
-			CDF_API_Client::log( 'error', '[CALC] Produto não encontrado: ' . $product_id );
+			Cdfrete_API_Client::log( 'error', '[CALC] Produto não encontrado: ' . $product_id );
+			wp_send_json_error( [ 'message' => __( 'Produto não encontrado.', 'central-do-frete' ) ] );
+		}
+
+		// A quote is derived from weight, size and price, so it must not describe a product
+		// the shop has not published. Variations inherit their parent's status.
+		$published = $product->is_type( 'variation' ) ? wc_get_product( $product->get_parent_id() ) : $product;
+
+		if ( ! $published || 'publish' !== $published->get_status() ) {
+			Cdfrete_API_Client::log( 'warning', sprintf( '[CALC] Produto %d não está publicado', $product_id ) );
 			wp_send_json_error( [ 'message' => __( 'Produto não encontrado.', 'central-do-frete' ) ] );
 		}
 
 		if ( ! self::is_product_served( $product ) ) {
-			CDF_API_Client::log( 'debug', sprintf(
+			Cdfrete_API_Client::log( 'debug', sprintf(
 				'[CALC] Produto %d fora da restrição de classe de entrega (classe: %s)',
 				$product_id,
-				CDF_Shipping_Class_Rule::class_of_product( $product )
+				Cdfrete_Shipping_Class_Rule::class_of_product( $product )
 			) );
 			wp_send_json_error( [ 'message' => __( 'Este produto não é cotado pela Central do Frete.', 'central-do-frete' ) ] );
 		}
 
-		$settings = CDF_Shipping_Method::get_settings();
+		$settings = Cdfrete_Shipping_Method::get_settings();
 		if ( empty( $settings['token'] ) ) {
-			CDF_API_Client::log( 'error', '[CALC] Token não configurado' );
+			Cdfrete_API_Client::log( 'error', '[CALC] Token não configurado' );
 			wp_send_json_error( [ 'message' => __( 'Plugin não configurado.', 'central-do-frete' ) ] );
 		}
 
 		$from = preg_replace( '/\D/', '', get_option( 'woocommerce_store_postcode', '' ) );
 		if ( empty( $from ) ) {
-			CDF_API_Client::log( 'error', '[CALC] CEP de origem não configurado' );
+			Cdfrete_API_Client::log( 'error', '[CALC] CEP de origem não configurado' );
 			wp_send_json_error( [ 'message' => __( 'CEP de origem não configurado.', 'central-do-frete' ) ] );
 		}
 
@@ -129,7 +149,7 @@ class CDF_Frontend_Calculator {
 			'weight'   => $weight,
 		] ];
 
-		CDF_API_Client::log( 'debug', sprintf(
+		Cdfrete_API_Client::log( 'debug', sprintf(
 			'[CALC] Dimensões - Produto: %s, H: %.2f, W: %.2f, L: %.2f, Peso: %.2fkg',
 			$product->get_name(),
 			$height,
@@ -138,43 +158,43 @@ class CDF_Frontend_Calculator {
 			$weight
 		) );
 
-		$cargo_type = get_post_meta( $product_id, 'cargo_type', true );
+		$cargo_type = Cdfrete_Product_Fields::get_cargo_type( (int) $product_id );
 		if ( empty( $cargo_type ) ) {
 			$cargo_type = $settings['default_cargo_type'] ?? '';
 		}
 		$cargo_types = ! empty( $cargo_type ) ? [ (int) $cargo_type ] : [];
 
-		CDF_API_Client::log( 'debug', '[CALC] Tipo de carga: ' . ( $cargo_type ?: 'não definido' ) );
+		Cdfrete_API_Client::log( 'debug', '[CALC] Tipo de carga: ' . ( $cargo_type ?: 'não definido' ) );
 
 		$invoice = (float) $product->get_price() * $quantity;
 
 		// Check cache.
-		$cache_key = CDF_Cache::build_key( $from, $postcode, $volumes, $cargo_types );
-		$services  = CDF_Cache::get( $cache_key );
+		$cache_key = Cdfrete_Cache::build_key( $from, $postcode, $volumes, $cargo_types );
+		$services  = Cdfrete_Cache::get( $cache_key );
 
 		if ( $services !== false ) {
-			CDF_API_Client::log( 'info', sprintf(
+			Cdfrete_API_Client::log( 'info', sprintf(
 				'[CALC] Cache HIT - Key: %s, %d opções',
 				substr( $cache_key, 0, 20 ) . '...',
 				count( $services )
 			) );
 		} else {
-			CDF_API_Client::log( 'info', '[CALC] Cache MISS - Consultando API' );
+			Cdfrete_API_Client::log( 'info', '[CALC] Cache MISS - Consultando API' );
 
 			$timeout = (int) ( $settings['api_timeout'] ?? 15 );
-			$client  = new CDF_API_Client( $settings['token'], $timeout );
+			$client  = new Cdfrete_API_Client( $settings['token'], $timeout );
 
 			$services = $client->get_quotation( $from, $postcode, $volumes, $cargo_types, $invoice );
 
 			if ( $services === false ) {
-				CDF_API_Client::log( 'error', '[CALC] Falha na API' );
+				Cdfrete_API_Client::log( 'error', '[CALC] Falha na API' );
 				wp_send_json_error( [ 'message' => __( 'Erro ao consultar frete. Tente novamente.', 'central-do-frete' ) ] );
 			}
 
-			$ttl = CDF_Cache::ttl_from_setting( $settings['cache_ttl'] ?? '1h' );
-			CDF_Cache::set( $cache_key, $services, $ttl );
+			$ttl = Cdfrete_Cache::ttl_from_setting( $settings['cache_ttl'] ?? '1h' );
+			Cdfrete_Cache::set( $cache_key, $services, $ttl );
 
-			CDF_API_Client::log( 'info', sprintf(
+			Cdfrete_API_Client::log( 'info', sprintf(
 				'[CALC] API retornou %d opções, cache salvo (TTL: %ds)',
 				count( $services ),
 				$ttl
@@ -182,7 +202,7 @@ class CDF_Frontend_Calculator {
 		}
 
 		if ( empty( $services ) ) {
-			CDF_API_Client::log( 'warning', '[CALC] Nenhuma opção de frete retornada' );
+			Cdfrete_API_Client::log( 'warning', '[CALC] Nenhuma opção de frete retornada' );
 			wp_send_json_error( [ 'message' => __( 'Nenhuma opção de frete encontrada para este CEP.', 'central-do-frete' ) ] );
 		}
 
@@ -198,7 +218,7 @@ class CDF_Frontend_Calculator {
 			} );
 			$services = array_values( $services );
 
-			CDF_API_Client::log( 'debug', sprintf(
+			Cdfrete_API_Client::log( 'debug', sprintf(
 				'[CALC] Filtro Balcão: %d -> %d opções',
 				$original_count,
 				count( $services )
@@ -214,7 +234,7 @@ class CDF_Frontend_Calculator {
 		$before_limit = count( $services );
 		$services     = self::apply_display_limit( $services, $display_limit );
 
-		CDF_API_Client::log( 'debug', sprintf(
+		Cdfrete_API_Client::log( 'debug', sprintf(
 			'[CALC] Limite "%s": %d -> %d opções',
 			$display_limit,
 			$before_limit,
@@ -222,7 +242,7 @@ class CDF_Frontend_Calculator {
 		) );
 
 		if ( empty( $services ) ) {
-			CDF_API_Client::log( 'warning', '[CALC] Todas as opções filtradas' );
+			Cdfrete_API_Client::log( 'warning', '[CALC] Todas as opções filtradas' );
 			wp_send_json_error( [ 'message' => __( 'Nenhuma opção de frete disponível para este CEP.', 'central-do-frete' ) ] );
 		}
 
@@ -236,8 +256,10 @@ class CDF_Frontend_Calculator {
 			$cost = $service['price'] + $handling_fee;
 
 			$results[] = [
-				'carrier'       => esc_html( $service['shipping_carrier'] ),
-				'service_type'  => esc_html( $service['service_type'] ?? '' ),
+				// Not escaped here on purpose: these travel as JSON and the script escapes them
+				// when it inserts them. Escaping twice renders "A & B" as "A &amp; B".
+				'carrier'       => $service['shipping_carrier'],
+				'service_type'  => $service['service_type'] ?? '',
 				'price'         => number_format( $cost, 2, ',', '.' ),
 				'delivery_time' => sprintf(
 					/* translators: %d: number of business days until delivery */
@@ -250,7 +272,7 @@ class CDF_Frontend_Calculator {
 
 		$elapsed = round( ( microtime( true ) - $start_time ) * 1000, 2 );
 
-		CDF_API_Client::log( 'info', sprintf(
+		Cdfrete_API_Client::log( 'info', sprintf(
 			'[CALC] Concluído em %.2fms - %d opções retornadas',
 			$elapsed,
 			count( $results )
@@ -282,16 +304,16 @@ class CDF_Frontend_Calculator {
 	 * @param WC_Product $product Product being displayed or quoted.
 	 */
 	private static function is_product_served( $product ): bool {
-		$instances = CDF_Shipping_Method::get_all_settings();
+		$instances = Cdfrete_Shipping_Method::get_all_settings();
 
 		if ( empty( $instances ) ) {
 			return true;
 		}
 
-		$classes = [ CDF_Shipping_Class_Rule::class_of_product( $product ) ];
+		$classes = [ Cdfrete_Shipping_Class_Rule::class_of_product( $product ) ];
 
 		foreach ( $instances as $settings ) {
-			if ( CDF_Shipping_Class_Rule::allows_for_settings( $classes, $settings ) ) {
+			if ( Cdfrete_Shipping_Class_Rule::allows_for_settings( $classes, $settings ) ) {
 				return true;
 			}
 		}
@@ -321,7 +343,7 @@ class CDF_Frontend_Calculator {
 					}
 				}
 
-				CDF_API_Client::log( 'debug', sprintf(
+				Cdfrete_API_Client::log( 'debug', sprintf(
 					'[CALC] economic_express - Econômica: %s (R$ %.2f, %d dias) | Rápida: %s (R$ %.2f, %d dias)',
 					$cheapest['shipping_carrier'],
 					$cheapest['price'],
@@ -333,7 +355,7 @@ class CDF_Frontend_Calculator {
 
 				// Use == instead of === to handle int/string type differences.
 				if ( $cheapest['id'] == $fastest['id'] ) {
-					CDF_API_Client::log( 'debug', '[CALC] economic_express - Mesma opção (mais barata = mais rápida)' );
+					Cdfrete_API_Client::log( 'debug', '[CALC] economic_express - Mesma opção (mais barata = mais rápida)' );
 					return [ $cheapest ];
 				}
 
