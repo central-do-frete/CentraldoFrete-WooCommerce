@@ -1,6 +1,6 @@
 === Central do Frete ===
 Contributors: centraldofrete
-Tags: shipping, freight, carriers, brazil, delivery
+Tags: shipping, freight, carriers, brazil, woocommerce
 Requires at least: 5.6
 Tested up to: 7.1
 Requires PHP: 7.4
@@ -8,17 +8,19 @@ Stable tag: 3.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Real-time freight quotes from multiple Brazilian carriers in your WooCommerce store, using your Central do Frete account.
+Offer freight in the cart with carriers rated on real performance, and Central do Frete following the shipment through.
 
 == Description ==
 
-Central do Frete is a Brazilian freight broker that connects merchants and carriers. This plugin brings the quotes from your account into the WooCommerce checkout: the shopper sees real prices and delivery estimates from several carriers in a single request, and you do not have to set up each carrier separately.
+Central do Frete sits between your store and the carriers. We select carriers on real performance - delivery time, damage rate and support - not on who pays to be listed, and we stay on the shipment after it leaves: the carrier moves your cargo, we are the ones who follow it and chase the carrier when something goes wrong.
+
+This plugin brings that into the WooCommerce checkout. The shopper sees prices and delivery estimates from the carriers your account already has, in a single request, and you do not set up carrier by carrier.
 
 **A Central do Frete account is required.** The plugin does not calculate freight on its own. It queries the service using your account access token.
 
 = Features =
 
-* Real-time quotes from multiple carriers in the cart and at checkout
+* Offer freight in the cart and at checkout, from carriers rated on real performance
 * Shipping calculator on the product page, before the item is added to the cart
 * Cargo type per product, or a single default for the whole store
 * Shipping class restriction, so you choose which classes Central do Frete serves
@@ -61,6 +63,10 @@ By installing and configuring the plugin you agree to send this data to Central 
 = Do I need a Central do Frete account? =
 
 Yes. The plugin is the interface to your account inside WooCommerce. Without the access token it cannot quote anything.
+
+= What does Central do Frete do that a carrier plugin does not? =
+
+We choose which carriers you get to compare, and we keep following the shipment. Carriers are selected on measured performance and reviewed every quarter on delivery time, damage rate and support - not on who pays to appear. When a shipment goes wrong, chasing the carrier is our job, not yours.
 
 = Does the plugin charge anything? =
 
