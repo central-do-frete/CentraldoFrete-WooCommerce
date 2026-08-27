@@ -15,13 +15,7 @@ class Cdfrete_Frontend_Calculator {
 	 * Render the shipping calculator on the product page.
 	 */
 	public static function render_calculator(): void {
-		$settings = Cdfrete_Shipping_Method::get_settings();
-
-		if ( empty( $settings['token'] ) ) {
-			return;
-		}
-
-		if ( ( $settings['product_calculator'] ?? 'yes' ) !== 'yes' ) {
+		if ( ! self::any_instance_offers_the_calculator() ) {
 			return;
 		}
 
@@ -110,26 +104,43 @@ class Cdfrete_Frontend_Calculator {
 			wp_send_json_error( [ 'message' => __( 'Produto não encontrado.', 'central-do-frete' ) ] );
 		}
 
-		if ( ! self::is_product_served( $product ) ) {
+		// The postcode the shopper typed is the destination, so it is also what decides which
+		// shipping zone - and therefore which token, fee, class restriction and display rules -
+		// govern this quote. The state is deliberately left out: the session may hold one from
+		// another address, and a wrong state matches a wrong zone.
+		$settings = Cdfrete_Shipping_Method::get_settings_for_destination( [
+			'country'  => 'BR',
+			'state'    => '',
+			'postcode' => $postcode,
+		] );
+
+		if ( empty( $settings ) ) {
+			Cdfrete_API_Client::log( 'warning', sprintf(
+				'[CALC] Nenhuma área de entrega com a Central do Frete corresponde ao CEP %s',
+				$postcode
+			) );
+			wp_send_json_error( [ 'message' => __( 'Não atendemos este CEP.', 'central-do-frete' ) ] );
+		}
+
+		// The restriction of the zone that answers, not of any zone that happens to allow it.
+		$product_class = Cdfrete_Shipping_Class_Rule::class_of_product( $product );
+
+		if ( ! Cdfrete_Shipping_Class_Rule::allows_for_settings( [ $product_class ], $settings ) ) {
 			Cdfrete_API_Client::log( 'debug', sprintf(
 				'[CALC] Produto %d fora da restrição de classe de entrega (classe: %s)',
 				$product_id,
-				Cdfrete_Shipping_Class_Rule::class_of_product( $product )
+				$product_class
 			) );
 			wp_send_json_error( [ 'message' => __( 'Este produto não é cotado pela Central do Frete.', 'central-do-frete' ) ] );
 		}
 
-		$settings = Cdfrete_Shipping_Method::get_settings();
 		if ( empty( $settings['token'] ) ) {
 			Cdfrete_API_Client::log( 'error', '[CALC] Token não configurado' );
 			wp_send_json_error( [ 'message' => __( 'Plugin não configurado.', 'central-do-frete' ) ] );
 		}
 
-		$from = preg_replace( '/\D/', '', get_option( 'woocommerce_store_postcode', '' ) );
-		if ( empty( $from ) ) {
-			Cdfrete_API_Client::log( 'error', '[CALC] CEP de origem não configurado' );
-			wp_send_json_error( [ 'message' => __( 'CEP de origem não configurado.', 'central-do-frete' ) ] );
-		}
+		// Empty is allowed: the service then quotes from the pickup address of the account.
+		$from = Cdfrete_Shipping_Method::store_origin_postcode();
 
 		$default_height = (float) str_replace( ',', '.', $settings['default_height'] ?? '2' );
 		$default_width  = (float) str_replace( ',', '.', $settings['default_width'] ?? '11' );
@@ -169,7 +180,13 @@ class Cdfrete_Frontend_Calculator {
 		$invoice = (float) $product->get_price() * $quantity;
 
 		// Check cache.
-		$cache_key = Cdfrete_Cache::build_key( $from, $postcode, $volumes, $cargo_types );
+		$cache_key = Cdfrete_Cache::build_key(
+			Cdfrete_API_Client::account_scope( (string) $settings['token'] ),
+			$from,
+			$postcode,
+			$volumes,
+			$cargo_types
+		);
 		$services  = Cdfrete_Cache::get( $cache_key );
 
 		if ( $services !== false ) {
@@ -295,6 +312,21 @@ class Cdfrete_Frontend_Calculator {
 		}
 
 		wp_send_json_success( $response );
+	}
+
+	/**
+	 * The product page has no destination yet, so the calculator shows up when any enabled
+	 * instance is configured to offer it. Which zone answers is decided once the shopper
+	 * types a postcode.
+	 */
+	private static function any_instance_offers_the_calculator(): bool {
+		foreach ( Cdfrete_Shipping_Method::get_all_settings() as $settings ) {
+			if ( ! empty( $settings['token'] ) && ( $settings['product_calculator'] ?? 'yes' ) === 'yes' ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**

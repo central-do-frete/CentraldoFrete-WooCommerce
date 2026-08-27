@@ -4,7 +4,7 @@ Tags: shipping, freight, carriers, brazil, woocommerce
 Requires at least: 5.6
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.1.1
+Stable tag: 3.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,7 +36,7 @@ This plugin depends on the Central do Frete service and sends data to the API at
 
 Data sent on each quote:
 
-* Origin postcode (the store postcode) and the destination postcode entered by the shopper
+* The destination postcode entered by the shopper, and the store postcode as the origin. A store with no postcode of its own sends no origin, and the quote then leaves from the pickup address registered in your Central do Frete account
 * Weight, height, width, length and quantity of the cart volumes
 * Total value of the products, used as the invoice amount
 * Cargo type configured on the products
@@ -86,7 +86,7 @@ Yes. The `woocommerce_shipping_centraldofrete_is_available` filter receives the 
 
 = Quotes are wrong or do not show up =
 
-Turn on **Modo debug** in the method settings and check the logs under **WooCommerce › Status › Logs**, in the `central-do-frete-*` file. The most common causes are a missing store postcode, products without weight and dimensions, and an invalid token.
+Turn on **Modo debug** in the method settings and check the logs under **WooCommerce › Status › Logs**, in the `central-do-frete-*` file. The most common causes are products without weight and dimensions, an invalid token, and an origin that is not where the freight actually leaves from - the method settings screen states which postcode the quotes are using.
 
 == Screenshots ==
 
@@ -96,6 +96,14 @@ Turn on **Modo debug** in the method settings and check the logs under **WooComm
 4. Shipping calculator on the product page, so the shopper checks the freight before adding the item to the cart.
 
 == Changelog ==
+
+= 3.2.0 =
+* A store with no postcode of its own now gets quotes: the request goes out with no origin and Central do Frete uses the pickup address registered in your account. Until now the plugin gave up and offered no freight at all
+* The method settings screen states which postcode the quotes leave from, and says so as a warning when that is the account's pickup address instead of the store address, because a different origin changes both the price and the list of carriers
+* Stores that use Central do Frete in more than one shipping zone no longer read another zone's settings: the product page calculator answers with the zone the shopper's postcode falls into, and applies that zone's shipping class restriction
+* Debug mode now writes logs whenever any shipping zone has it turned on, instead of depending on which zone the database returned first
+* Cached quotes are now separated per Central do Frete account, so two shipping zones with different tokens cannot read each other's prices. Every cached quote is discarded once on update
+* `Cdfrete_Shipping_Method::get_settings()` was removed. It answered with an arbitrary shipping zone; use `get_settings_for_destination()`, `get_instance_settings()` or `get_all_settings()`
 
 = 3.1.1 =
 * The cargo type button on the settings screen now loads its script through the WordPress script queue instead of printing it inline
@@ -128,6 +136,9 @@ Turn on **Modo debug** in the method settings and check the logs under **WooComm
 * Previous version
 
 == Upgrade Notice ==
+
+= 3.2.0 =
+If your store has no postcode set, Central do Frete now quotes from the pickup address registered in your account instead of offering no freight. Open the method settings: the screen states which postcode is in use. Cached quotes are cleared once. On a store that uses the method in more than one shipping zone and defines those zones by state, the product page calculator may answer that it does not serve a postcode; the cart and the checkout are unaffected.
 
 = 3.1.1 =
 Safe to update: your settings, shipping zones, product cargo types and existing orders are unchanged. Only if you wrote custom CSS for the product page calculator: its class names changed from cdf- to cdfrete- (for example .cdf-rates-table is now .cdfrete-rates-table).

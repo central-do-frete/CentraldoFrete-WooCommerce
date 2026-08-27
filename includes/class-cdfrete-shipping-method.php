@@ -7,6 +7,9 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 
 	private const CARGO_TYPES_OPTION = 'centraldofrete_cargotypes';
 
+	/** Origin the service resolved for the last quote we sent without one. */
+	private const RESOLVED_ORIGIN_OPTION = 'cdfrete_resolved_origin';
+
 	public function __construct( $instance_id = 0 ) {
 		$this->id                 = 'centraldofrete';
 		$this->instance_id        = absint( $instance_id );
@@ -458,6 +461,113 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	}
 
 	/**
+	 * The postcode the store quotes from, digits only, empty when the store has none.
+	 */
+	public static function store_origin_postcode(): string {
+		return preg_replace( '/\D/', '', (string) get_option( 'woocommerce_store_postcode', '' ) );
+	}
+
+	/**
+	 * Remember the origin the service resolved for a quote we sent without one.
+	 *
+	 * Only the most recent one is kept: it exists so the settings screen can name the postcode
+	 * instead of only naming where it comes from, and the account it belongs to is recorded
+	 * with it so a second zone with a different token is not told the wrong postcode.
+	 */
+	public static function record_resolved_origin( string $account, string $zipcode ): void {
+		$current = get_option( self::RESOLVED_ORIGIN_OPTION, [] );
+
+		if ( is_array( $current ) && ( $current['account'] ?? '' ) === $account && ( $current['zipcode'] ?? '' ) === $zipcode ) {
+			return;
+		}
+
+		update_option(
+			self::RESOLVED_ORIGIN_OPTION,
+			[
+				'account' => $account,
+				'zipcode' => $zipcode,
+				'updated' => time(),
+			],
+			false
+		);
+	}
+
+	/**
+	 * The last origin the service resolved for this account, or an empty string.
+	 */
+	public static function get_resolved_origin( string $account ): string {
+		$stored = get_option( self::RESOLVED_ORIGIN_OPTION, [] );
+
+		if ( ! is_array( $stored ) || ( $stored['account'] ?? '' ) !== $account ) {
+			return '';
+		}
+
+		return (string) ( $stored['zipcode'] ?? '' );
+	}
+
+	/**
+	 * Say which postcode the quotes leave from, above the settings form.
+	 *
+	 * Hooked on `get_admin_options_html()` rather than `admin_options()` so the notice shows
+	 * on the instance settings screen and inside the shipping zone modal alike.
+	 *
+	 * A quote from the wrong origin still looks like a quote: the prices and the carrier list
+	 * change, nothing errors. So the screen states the origin it is about to use, and says so
+	 * loudly when that is not the postcode the merchant set in WooCommerce.
+	 */
+	public function get_admin_options_html(): string {
+		return $this->origin_notice_html() . parent::get_admin_options_html();
+	}
+
+	private function origin_notice_html(): string {
+		$store_postcode = self::store_origin_postcode();
+		$general_link   = sprintf(
+			'<a href="%s">%s</a>',
+			esc_url( admin_url( 'admin.php?page=wc-settings&tab=general' ) ),
+			esc_html__( 'WooCommerce › Configurações › Geral', 'central-do-frete' )
+		);
+
+		if ( '' !== $store_postcode ) {
+			return sprintf(
+				'<div class="notice notice-info inline"><p>%s</p></div>',
+				wp_kses_post( sprintf(
+					/* translators: 1: store postcode, 2: link to the WooCommerce general settings */
+					__( 'As cotações saem do CEP da loja, <strong>%1$s</strong>. Para mudar a origem, altere o endereço da loja em %2$s.', 'central-do-frete' ),
+					esc_html( self::format_postcode( $store_postcode ) ),
+					$general_link
+				) )
+			);
+		}
+
+		$resolved = self::get_resolved_origin( Cdfrete_API_Client::account_scope( (string) $this->get_option( 'token', '' ) ) );
+
+		$origin_line = '' === $resolved
+			? __( 'A loja está sem CEP, então as cotações são enviadas sem origem e a Central do Frete usa o <strong>endereço de coleta cadastrado na sua conta</strong>.', 'central-do-frete' )
+			: sprintf(
+				/* translators: %s: postcode the service used on the last quote */
+				__( 'A loja está sem CEP, então as cotações são enviadas sem origem e a Central do Frete usa o endereço de coleta cadastrado na sua conta. Na última cotação isso foi o CEP <strong>%s</strong>.', 'central-do-frete' ),
+				esc_html( self::format_postcode( $resolved ) )
+			);
+
+		return sprintf(
+			'<div class="notice notice-warning inline"><p>%1$s</p><p>%2$s</p></div>',
+			wp_kses_post( $origin_line ),
+			wp_kses_post( sprintf(
+				/* translators: %s: link to the WooCommerce general settings */
+				__( 'A origem muda o preço e a lista de transportadoras. Se os seus envios não saem do endereço de coleta da conta, preencha o CEP da loja em %s.', 'central-do-frete' ),
+				$general_link
+			) )
+		);
+	}
+
+	/**
+	 * Eight digits as a Brazilian postcode, so the merchant reads it the way it was typed.
+	 */
+	private static function format_postcode( string $digits ): string {
+		return strlen( $digits ) === 8 ? substr( $digits, 0, 5 ) . '-' . substr( $digits, 5 ) : $digits;
+	}
+
+	/**
 	 * Calculate shipping rates.
 	 */
 	public function calculate_shipping( $package = [] ): void {
@@ -469,20 +579,15 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 			return;
 		}
 
-		$from = preg_replace( '/\D/', '', get_option( 'woocommerce_store_postcode', '' ) );
+		$from = self::store_origin_postcode();
 		$to   = preg_replace( '/\D/', '', $package['destination']['postcode'] ?? '' );
 
 		Cdfrete_API_Client::log( 'info', sprintf(
 			'[SHIP] Iniciando cotação - Origem: %s, Destino: %s, Itens: %d',
-			$from ?: 'N/A',
+			$from ?: 'cadastro da conta na Central do Frete',
 			$to ?: 'N/A',
 			count( $package['contents'] ?? [] )
 		) );
-
-		if ( empty( $from ) ) {
-			Cdfrete_API_Client::log( 'warning', '[SHIP] CEP de origem não configurado na loja' );
-			return;
-		}
 
 		if ( empty( $to ) ) {
 			Cdfrete_API_Client::log( 'debug', '[SHIP] CEP de destino não informado (aguardando input do cliente)' );
@@ -575,7 +680,14 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 		) );
 
 		// One builder for both quoting paths, so the cache version invalidates the cart too.
-		$cache_key = Cdfrete_Cache::build_key( $from, $to, $volumes, $cargo_types, $recipient );
+		$cache_key = Cdfrete_Cache::build_key(
+			Cdfrete_API_Client::account_scope( $token ),
+			$from,
+			$to,
+			$volumes,
+			$cargo_types,
+			$recipient
+		);
 		$cached    = Cdfrete_Cache::get( $cache_key );
 
 		if ( $cached !== false ) {
@@ -932,21 +1044,101 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	}
 
 	/**
-	 * Get shipping method settings (static helper).
+	 * Settings of one instance, by id.
 	 */
-	public static function get_settings(): array {
-		global $wpdb;
+	public static function get_instance_settings( int $instance_id ): array {
+		$settings = get_option( 'woocommerce_centraldofrete_' . $instance_id . '_settings', [] );
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$instance_id = $wpdb->get_var(
-			"SELECT instance_id FROM {$wpdb->prefix}woocommerce_shipping_zone_methods WHERE method_id = 'centraldofrete' LIMIT 1"
-		);
+		return is_array( $settings ) ? $settings : [];
+	}
 
-		if ( ! $instance_id ) {
-			return [];
+	/**
+	 * Settings of the instance that serves a destination.
+	 *
+	 * A store can add the method to several shipping zones, each with its own token, handling
+	 * fee and display rules, so "the settings" only mean something next to a destination. The
+	 * zone comes from WooCommerce's own matcher; when the destination does not resolve to a
+	 * zone that offers this method, no settings are returned rather than another zone's.
+	 *
+	 * @param array $destination Package destination: country, state and postcode.
+	 */
+	public static function get_settings_for_destination( array $destination ): array {
+		$instance_id = self::instance_id_for_destination( $destination );
+
+		return null === $instance_id ? [] : self::get_instance_settings( $instance_id );
+	}
+
+	private static function instance_id_for_destination( array $destination ): ?int {
+		$enabled = self::get_enabled_instance_ids();
+
+		if ( count( $enabled ) === 1 ) {
+			return (int) $enabled[0];
 		}
 
-		return get_option( 'woocommerce_centraldofrete_' . $instance_id . '_settings', [] );
+		if ( empty( $enabled ) ) {
+			return null;
+		}
+
+		$zone = WC_Shipping_Zones::get_zone_matching_package( [
+			'destination' => wp_parse_args( $destination, [
+				'country'  => 'BR',
+				'state'    => '',
+				'postcode' => '',
+			] ),
+		] );
+
+		$zone_instance_ids = [];
+
+		foreach ( $zone->get_shipping_methods( true ) as $method ) {
+			if ( 'centraldofrete' === $method->id ) {
+				$zone_instance_ids[] = (int) $method->instance_id;
+			}
+		}
+
+		return self::pick_instance( $enabled, $zone_instance_ids );
+	}
+
+	/**
+	 * Which enabled instance a matched zone points at.
+	 *
+	 * Kept free of WordPress so the choice can be tested on its own. A single enabled instance
+	 * leaves nothing to choose, and answering it without consulting the zone is deliberate: the
+	 * product page knows a postcode but no state, so a zone defined by state cannot be matched,
+	 * and the store with one instance must keep quoting. Past that, only an instance of the
+	 * matched zone qualifies, and if that zone carries the method twice the lower id wins, so
+	 * the answer is stable instead of whatever order the database returns.
+	 *
+	 * @param int[] $enabled_ids      Ids of every enabled instance, store wide.
+	 * @param int[] $zone_instance_ids Ids this method has in the matched zone.
+	 */
+	public static function pick_instance( array $enabled_ids, array $zone_instance_ids ): ?int {
+		$enabled = array_values( array_unique( array_map( 'intval', $enabled_ids ) ) );
+
+		if ( empty( $enabled ) ) {
+			return null;
+		}
+
+		if ( count( $enabled ) === 1 ) {
+			return $enabled[0];
+		}
+
+		$candidates = array_intersect( $enabled, array_map( 'intval', $zone_instance_ids ) );
+
+		return empty( $candidates ) ? null : min( $candidates );
+	}
+
+	/**
+	 * Debug mode has no zone context: it is a diagnostic switch, and a merchant who turned it
+	 * on in one zone asked for logs from the whole plugin.
+	 */
+	public static function debug_enabled(): bool {
+		foreach ( self::get_all_settings() as $settings ) {
+			if ( ( $settings['debug'] ?? 'no' ) === 'yes' ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -958,7 +1150,7 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 		$settings = [];
 
 		foreach ( self::get_enabled_instance_ids() as $instance_id ) {
-			$instance_settings = get_option( 'woocommerce_centraldofrete_' . $instance_id . '_settings', [] );
+			$instance_settings = self::get_instance_settings( (int) $instance_id );
 
 			if ( ! empty( $instance_settings ) ) {
 				$settings[] = $instance_settings;

@@ -165,6 +165,44 @@ class Cdfrete_API_Client {
 	}
 
 	/**
+	 * The body of a quotation request.
+	 *
+	 * Free of WordPress and of the HTTP call so it can be tested on its own, because the one
+	 * rule that matters here is invisible from the outside: an empty origin has to be left out
+	 * of the body entirely. The service reads `from` with a default of the pickup address
+	 * registered in the account, and that default only applies when the key is absent - an
+	 * empty string is a present value, and it fails the eight character rule on the way in.
+	 *
+	 * @param string     $from      Origin postcode, digits only, empty to let the account decide.
+	 * @param string     $to        Destination postcode, digits only.
+	 * @param array      $volumes   Volumes as the service expects them.
+	 * @param array      $cargo_types Cargo type ids.
+	 * @param float      $invoice   Invoice amount.
+	 * @param array|null $recipient Recipient name and document, when the checkout has them.
+	 */
+	public static function build_quotation_payload( string $from, string $to, array $volumes, array $cargo_types, float $invoice, ?array $recipient = null ): array {
+		$payload = [
+			'cargo_types'    => array_values( array_unique( $cargo_types ) ),
+			'volumes'        => $volumes,
+			'invoice_amount' => $invoice,
+			'to'             => $to,
+		];
+
+		if ( '' !== $from ) {
+			$payload['from'] = $from;
+		}
+
+		if ( ! empty( $recipient ) && ! empty( $recipient['document'] ) ) {
+			$payload['recipient'] = [
+				'document' => $recipient['document'],
+				'name'     => $recipient['name'] ?? '',
+			];
+		}
+
+		return $payload;
+	}
+
+	/**
 	 * Request a shipping quotation.
 	 *
 	 * @param string     $from        Origin ZIP code.
@@ -177,21 +215,7 @@ class Cdfrete_API_Client {
 	 * @return array|false Array of shipping options or false on failure.
 	 */
 	public function get_quotation( string $from, string $to, array $volumes, array $cargo_types, float $invoice, ?array $recipient = null ) {
-		$payload = [
-			'cargo_types'    => array_values( array_unique( $cargo_types ) ),
-			'volumes'        => $volumes,
-			'invoice_amount' => $invoice,
-			'from'           => $from,
-			'to'             => $to,
-		];
-
-		// Add recipient if provided.
-		if ( ! empty( $recipient ) && ! empty( $recipient['document'] ) ) {
-			$payload['recipient'] = [
-				'document' => $recipient['document'],
-				'name'     => $recipient['name'] ?? '',
-			];
-		}
+		$payload = self::build_quotation_payload( $from, $to, $volumes, $cargo_types, $invoice, $recipient );
 
 		$loggable = $payload;
 		if ( isset( $loggable['recipient'] ) ) {
@@ -239,6 +263,16 @@ class Cdfrete_API_Client {
 
 		$results = json_decode( wp_remote_retrieve_body( $results_response ), true );
 
+		if ( '' === $from ) {
+			// The quotation echoes the sender it actually used. Remembering it is what lets the
+			// settings screen name the postcode the store is quoting from.
+			$resolved = preg_replace( '/\D/', '', (string) ( $results['sender']['address']['zipcode'] ?? '' ) );
+
+			if ( '' !== $resolved ) {
+				Cdfrete_Shipping_Method::record_resolved_origin( self::account_scope( $this->token ), $resolved );
+			}
+		}
+
 		if ( empty( $results['prices'] ) || ! is_array( $results['prices'] ) ) {
 			self::log( 'warning', 'Nenhum resultado de frete encontrado para a cotação ' . $quotation_code );
 			return [];
@@ -285,11 +319,19 @@ class Cdfrete_API_Client {
 		return strlen( $body ) > $limit ? substr( $body, 0, $limit ) . '... [truncado]' : $body;
 	}
 
+	/**
+	 * A quote is priced against the Central do Frete account behind the token, and when the
+	 * store has no postcode the origin comes from that account too. Anything keyed per account
+	 * uses this digest so the raw token never leaves the client.
+	 */
+	public static function account_scope( string $token ): string {
+		return substr( hash( 'sha256', $token ), 0, 16 );
+	}
+
 	public static function log( string $level, string $message ): void {
 		// Check if debug mode is enabled (except for errors which always log).
 		if ( $level !== 'error' && $level !== 'warning' ) {
-			$settings = Cdfrete_Shipping_Method::get_settings();
-			if ( ( $settings['debug'] ?? 'no' ) !== 'yes' ) {
+			if ( ! Cdfrete_Shipping_Method::debug_enabled() ) {
 				return;
 			}
 		}
