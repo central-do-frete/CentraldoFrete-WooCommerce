@@ -19,8 +19,8 @@ class Cdfrete_Cache {
 	 * `$account` is `Cdfrete_API_Client::account_scope()` for the token that will be quoted
 	 * with. Prices depend on the account, and an empty `$from` means the origin is the pickup
 	 * address of that account, so two shipping zones carrying different tokens must not read
-	 * each other's entries. An empty `$from` cannot collide with a configured one either: a
-	 * store postcode is always digits here, never the empty string.
+	 * each other's entries. An empty `$from` cannot collide with a configured one either:
+	 * `Cdfrete_Shipping_Method::classify_origin()` lets through eight digits or nothing at all.
 	 */
 	public static function build_key( string $account, string $from, string $to, array $volumes, array $cargo_types, ?array $recipient = null ): string {
 		$data = wp_json_encode( [

@@ -4,7 +4,7 @@ Tags: shipping, freight, carriers, brazil, woocommerce
 Requires at least: 5.6
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.2.0
+Stable tag: 3.2.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,7 +36,7 @@ This plugin depends on the Central do Frete service and sends data to the API at
 
 Data sent on each quote:
 
-* The destination postcode entered by the shopper, and the store postcode as the origin. A store with no postcode of its own sends no origin, and the quote then leaves from the pickup address registered in your Central do Frete account
+* The destination postcode entered by the shopper, and the store postcode as the origin. A store with no usable postcode of its own - missing, or not 8 numbers - sends no origin, and the quote then leaves from the pickup address registered in your Central do Frete account
 * Weight, height, width, length and quantity of the cart volumes
 * Total value of the products, used as the invoice amount
 * Cargo type configured on the products
@@ -97,6 +97,11 @@ Turn on **Modo debug** in the method settings and check the logs under **WooComm
 
 == Changelog ==
 
+= 3.2.1 =
+* **The product page calculator setting changed meaning: it now decides whether that zone answers, not only whether the field is drawn.** A shopper whose postcode fell into a zone with the calculator turned off still got prices from that zone, because the switch was read once for the whole store. Each zone's switch now governs its own answers, and a shopper in a region you turned it off for is told the calculation is not available there. Turned on in every zone, which is the default, nothing changes
+* A store postcode that is filled in but is not 8 numbers no longer breaks every quote. It is treated as no postcode at all, so the quote leaves from the pickup address registered in your account, and the method settings screen says the store postcode is invalid - a separate warning from the one for a store address that was never filled in, because the fix is different
+* Stores that use Central do Frete in more than one shipping zone with different tokens now see the right pickup postcode on each zone's settings screen. The plugin kept only the last one resolved, so two zones overwrote each other and the screen named whichever account had quoted most recently
+
 = 3.2.0 =
 * A store with no postcode of its own now gets quotes: the request goes out with no origin and Central do Frete uses the pickup address registered in your account. Until now the plugin gave up and offered no freight at all
 * The method settings screen states which postcode the quotes leave from, and says so as a warning when that is the account's pickup address instead of the store address, because a different origin changes both the price and the list of carriers
@@ -136,6 +141,9 @@ Turn on **Modo debug** in the method settings and check the logs under **WooComm
 * Previous version
 
 == Upgrade Notice ==
+
+= 3.2.1 =
+The product page calculator switch now decides whether a shipping zone answers, not only whether the field is drawn. If you use Central do Frete in more than one zone and turned the calculator off in one of them, shoppers with a postcode in that zone now read that the calculation is not available there, instead of getting that zone's prices. With the calculator on everywhere, which is the default, nothing changes. A store postcode that is filled in but is not 8 numbers now quotes from your account's pickup address instead of failing, and the settings screen says the postcode is invalid.
 
 = 3.2.0 =
 If your store has no postcode set, Central do Frete now quotes from the pickup address registered in your account instead of offering no freight. Open the method settings: the screen states which postcode is in use. Cached quotes are cleared once. On a store that uses the method in more than one shipping zone and defines those zones by state, the product page calculator may answer that it does not serve a postcode; the cart and the checkout are unaffected.

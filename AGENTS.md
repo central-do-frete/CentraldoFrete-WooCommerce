@@ -28,11 +28,19 @@ A release is: bump the version in `woo-central-do-frete.php` (header and `CDFRET
 The API validates `from` as an eight character string and falls back to the account's pickup
 address only when the key is absent, so an origin that is not set must be left out of the
 request body rather than sent empty (`Cdfrete_API_Client::build_quotation_payload`).
+`Cdfrete_Shipping_Method::classify_origin()` is what makes that hold: it is the only door the
+store postcode comes through, and it returns eight digits or nothing, so a malformed postcode
+never reaches the request. It also tells the settings screen which of the two problems to
+report, because "not filled in" and "filled in wrong" have different fixes.
 
 A store can add the method to several shipping zones, each with its own token and rules, so
 settings only mean something next to a destination. Read them with
 `Cdfrete_Shipping_Method::get_settings_for_destination()`, or `get_all_settings()` where there is
 genuinely no destination. Never pick an instance yourself.
+A per-zone setting governs what that zone does, not just what the store draws: the product page
+calculator renders when any zone offers it, and then the zone the shopper's postcode falls into
+decides whether it answers. Anything keyed per account (cached prices, the resolved origin map)
+is likewise keyed by `Cdfrete_API_Client::account_scope()`, never by a single store-wide value.
 
 ## Maintaining this file
 

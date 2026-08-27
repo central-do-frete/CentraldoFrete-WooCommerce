@@ -5,7 +5,7 @@
  * Description: Cotação de frete em tempo real com múltiplas transportadoras via Central do Frete.
  * Author: Central do Frete
  * Author URI: https://centraldofrete.com
- * Version: 3.2.0
+ * Version: 3.2.1
  * Requires at least: 5.6
  * Requires PHP: 7.4
  * Requires Plugins: woocommerce
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'CDFRETE_VERSION', '3.2.0' );
+define( 'CDFRETE_VERSION', '3.2.1' );
 define( 'CDFRETE_PLUGIN_FILE', __FILE__ );
 define( 'CDFRETE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'CDFRETE_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

@@ -122,6 +122,21 @@ class Cdfrete_Frontend_Calculator {
 			wp_send_json_error( [ 'message' => __( 'Não atendemos este CEP.', 'central-do-frete' ) ] );
 		}
 
+		// The switch belongs to the zone that answers, so it decides the answer and not only
+		// whether the form was drawn: the widget is on the page because some zone offers it,
+		// and the zone this postcode falls into is a different question. A shopper whose region
+		// is not covered is told so, rather than being handed prices the merchant turned off.
+		if ( ! self::calculator_is_offered( $settings ) ) {
+			Cdfrete_API_Client::log( 'debug', sprintf(
+				'[CALC] Calculadora desligada na área de entrega que atende o CEP %s',
+				$postcode
+			) );
+			wp_send_json_error( [
+				'message' => __( 'O cálculo de frete não está disponível para esta região.', 'central-do-frete' ),
+				'notice'  => true,
+			] );
+		}
+
 		// The restriction of the zone that answers, not of any zone that happens to allow it.
 		$product_class = Cdfrete_Shipping_Class_Rule::class_of_product( $product );
 
@@ -315,13 +330,26 @@ class Cdfrete_Frontend_Calculator {
 	}
 
 	/**
+	 * Whether one shipping zone offers the product page calculator.
+	 *
+	 * Read in the one place that draws the widget and in the one place that answers it, so the
+	 * setting cannot mean two things. Kept free of WordPress so it can be tested on its own.
+	 * Absent counts as on, which is how a zone saved before the field existed keeps quoting.
+	 *
+	 * @param array $settings Settings of a single instance.
+	 */
+	public static function calculator_is_offered( array $settings ): bool {
+		return ( $settings['product_calculator'] ?? 'yes' ) === 'yes';
+	}
+
+	/**
 	 * The product page has no destination yet, so the calculator shows up when any enabled
 	 * instance is configured to offer it. Which zone answers is decided once the shopper
-	 * types a postcode.
+	 * types a postcode, and that zone's own switch decides whether it answers at all.
 	 */
 	private static function any_instance_offers_the_calculator(): bool {
 		foreach ( Cdfrete_Shipping_Method::get_all_settings() as $settings ) {
-			if ( ! empty( $settings['token'] ) && ( $settings['product_calculator'] ?? 'yes' ) === 'yes' ) {
+			if ( ! empty( $settings['token'] ) && self::calculator_is_offered( $settings ) ) {
 				return true;
 			}
 		}

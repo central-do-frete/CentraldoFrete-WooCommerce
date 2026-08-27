@@ -1,0 +1,93 @@
+<?php
+
+use PHPUnit\Framework\TestCase;
+
+/**
+ * When a quote goes out with no origin, the postcode the service resolved is remembered so the
+ * settings screen can name it. A store can carry a different token per shipping zone, and each
+ * of those accounts has its own pickup address, so a single remembered pair meant two zones
+ * overwrote each other on every alternating quote: a write to the database every time, and a
+ * settings screen that named whichever account had quoted most recently.
+ */
+class ResolvedOriginTest extends TestCase {
+
+	private const ACCOUNT_A = 'aaaaaaaaaaaaaaaa';
+	private const ACCOUNT_B = 'bbbbbbbbbbbbbbbb';
+
+	public function test_the_first_origin_is_recorded_against_its_account(): void {
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( [], self::ACCOUNT_A, '01310100', 1000 );
+
+		$this->assertSame( '01310100', $map[ self::ACCOUNT_A ]['zipcode'] );
+		$this->assertSame( 1000, $map[ self::ACCOUNT_A ]['updated'] );
+	}
+
+	public function test_two_accounts_are_remembered_side_by_side(): void {
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( [], self::ACCOUNT_A, '01310100', 1000 );
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, self::ACCOUNT_B, '30240440', 1001 );
+
+		$this->assertSame( '01310100', $map[ self::ACCOUNT_A ]['zipcode'] );
+		$this->assertSame( '30240440', $map[ self::ACCOUNT_B ]['zipcode'] );
+	}
+
+	public function test_two_zones_alternating_stop_overwriting_each_other(): void {
+		$map = [];
+
+		for ( $i = 0; $i < 6; $i++ ) {
+			$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, self::ACCOUNT_A, '01310100', 1000 + $i );
+			$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, self::ACCOUNT_B, '30240440', 1000 + $i );
+		}
+
+		$this->assertSame( '01310100', $map[ self::ACCOUNT_A ]['zipcode'] );
+		$this->assertSame( '30240440', $map[ self::ACCOUNT_B ]['zipcode'] );
+	}
+
+	/**
+	 * The caller writes to the database only when the map comes back different, so an unchanged
+	 * origin has to come back identical - including after another account was recorded.
+	 */
+	public function test_recording_the_same_origin_again_changes_nothing(): void {
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( [], self::ACCOUNT_A, '01310100', 1000 );
+
+		$this->assertSame( $map, Cdfrete_Shipping_Method::with_resolved_origin( $map, self::ACCOUNT_A, '01310100', 2000 ) );
+	}
+
+	public function test_a_quote_from_the_other_account_does_not_dirty_the_first(): void {
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( [], self::ACCOUNT_A, '01310100', 1000 );
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, self::ACCOUNT_B, '30240440', 1001 );
+
+		$this->assertSame( $map, Cdfrete_Shipping_Method::with_resolved_origin( $map, self::ACCOUNT_B, '30240440', 2000 ) );
+	}
+
+	public function test_an_account_that_moved_its_pickup_address_is_updated(): void {
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( [], self::ACCOUNT_A, '01310100', 1000 );
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, self::ACCOUNT_A, '30240440', 2000 );
+
+		$this->assertSame( '30240440', $map[ self::ACCOUNT_A ]['zipcode'] );
+		$this->assertSame( 2000, $map[ self::ACCOUNT_A ]['updated'] );
+	}
+
+	public function test_the_map_is_bounded_and_drops_the_least_recently_resolved(): void {
+		$map = [];
+
+		foreach ( [ 'account-1', 'account-2', 'account-3' ] as $i => $account ) {
+			$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, $account, '0131010' . $i, 1000 + $i, 2 );
+		}
+
+		$this->assertCount( 2, $map );
+		$this->assertArrayNotHasKey( 'account-1', $map );
+		$this->assertSame( '01310101', $map['account-2']['zipcode'] );
+		$this->assertSame( '01310102', $map['account-3']['zipcode'] );
+	}
+
+	/**
+	 * Before this the option held one flat `{account, zipcode, updated}` pair. It has to be
+	 * retired rather than read as if its keys were accounts.
+	 */
+	public function test_the_single_pair_an_older_version_stored_is_retired(): void {
+		$stored = [ 'account' => self::ACCOUNT_A, 'zipcode' => '01310100', 'updated' => 900 ];
+
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( $stored, self::ACCOUNT_B, '30240440', 1000 );
+
+		$this->assertSame( [ self::ACCOUNT_B => [ 'zipcode' => '30240440', 'updated' => 1000 ] ], $map );
+	}
+}

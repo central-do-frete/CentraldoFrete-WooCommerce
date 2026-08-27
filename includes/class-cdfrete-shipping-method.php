@@ -7,8 +7,16 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 
 	private const CARGO_TYPES_OPTION = 'centraldofrete_cargotypes';
 
-	/** Origin the service resolved for the last quote we sent without one. */
+	/** Origins the service resolved for quotes sent without one, keyed by account scope. */
 	private const RESOLVED_ORIGIN_OPTION = 'cdfrete_resolved_origin';
+
+	/** How many accounts that map keeps, the least recently resolved dropping out first. */
+	private const RESOLVED_ORIGIN_LIMIT = 20;
+
+	/** How the store postcode stands as a quotation origin. */
+	public const ORIGIN_VALID     = 'valid';
+	public const ORIGIN_MISSING   = 'missing';
+	public const ORIGIN_MALFORMED = 'malformed';
 
 	public function __construct( $instance_id = 0 ) {
 		$this->id                 = 'centraldofrete';
@@ -109,8 +117,8 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 				'title'       => __( 'Calculador na página do produto', 'central-do-frete' ),
 				'type'        => 'checkbox',
 				'default'     => 'yes',
-				'label'       => __( 'Mostrar campo "Calcule o frete"', 'central-do-frete' ),
-				'description' => __( 'Permite calcular o frete antes de adicionar ao carrinho.', 'central-do-frete' ),
+				'label'       => __( 'Cotar na página do produto', 'central-do-frete' ),
+				'description' => __( 'Permite calcular o frete antes de adicionar ao carrinho. Vale para esta área de entrega: quem digitar um CEP de outra área recebe o que estiver configurado lá.', 'central-do-frete' ),
 			],
 
 			// ═══════════════════════════════════════════════════════════════
@@ -461,35 +469,116 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	}
 
 	/**
-	 * The postcode the store quotes from, digits only, empty when the store has none.
+	 * How a raw store postcode stands as a quotation origin.
+	 *
+	 * Kept free of WordPress so it can be tested on its own, and it is the one place that
+	 * decides: the service validates `from` as exactly eight characters and only falls back to
+	 * the pickup address of the account when the key is absent, so anything that is not eight
+	 * digits has to leave as no origin at all rather than as a value that fails on the way in.
+	 * `postcode` is therefore either empty or eight digits, never anything else.
+	 *
+	 * @return array{status: string, postcode: string, typed: string}
 	 */
-	public static function store_origin_postcode(): string {
-		return preg_replace( '/\D/', '', (string) get_option( 'woocommerce_store_postcode', '' ) );
+	public static function classify_origin( string $raw ): array {
+		$typed  = trim( $raw );
+		$digits = preg_replace( '/\D/', '', $typed );
+
+		if ( '' === $digits ) {
+			return [ 'status' => self::ORIGIN_MISSING, 'postcode' => '', 'typed' => $typed ];
+		}
+
+		if ( strlen( $digits ) !== 8 ) {
+			return [ 'status' => self::ORIGIN_MALFORMED, 'postcode' => '', 'typed' => $typed ];
+		}
+
+		return [ 'status' => self::ORIGIN_VALID, 'postcode' => $digits, 'typed' => $typed ];
 	}
 
 	/**
-	 * Remember the origin the service resolved for a quote we sent without one.
+	 * How the postcode set in WooCommerce stands as a quotation origin.
+	 */
+	private static function store_origin(): array {
+		return self::classify_origin( (string) get_option( 'woocommerce_store_postcode', '' ) );
+	}
+
+	/**
+	 * The postcode the store quotes from: eight digits, or empty when the store has none the
+	 * service would accept. An origin it would reject is left out so the account decides.
+	 */
+	public static function store_origin_postcode(): string {
+		return self::store_origin()['postcode'];
+	}
+
+	/**
+	 * Remember the origin the service resolved for a quote sent without one.
 	 *
-	 * Only the most recent one is kept: it exists so the settings screen can name the postcode
-	 * instead of only naming where it comes from, and the account it belongs to is recorded
-	 * with it so a second zone with a different token is not told the wrong postcode.
+	 * It exists so the settings screen can name the postcode instead of only naming where it
+	 * comes from, and it is kept per account because a store can carry a different token per
+	 * shipping zone, each with its own pickup address.
 	 */
 	public static function record_resolved_origin( string $account, string $zipcode ): void {
-		$current = get_option( self::RESOLVED_ORIGIN_OPTION, [] );
+		$stored = get_option( self::RESOLVED_ORIGIN_OPTION, [] );
+		$stored = is_array( $stored ) ? $stored : [];
 
-		if ( is_array( $current ) && ( $current['account'] ?? '' ) === $account && ( $current['zipcode'] ?? '' ) === $zipcode ) {
+		$updated = self::with_resolved_origin( $stored, $account, $zipcode, time() );
+
+		if ( $updated === $stored ) {
 			return;
 		}
 
-		update_option(
-			self::RESOLVED_ORIGIN_OPTION,
-			[
-				'account' => $account,
-				'zipcode' => $zipcode,
-				'updated' => time(),
-			],
-			false
-		);
+		update_option( self::RESOLVED_ORIGIN_OPTION, $updated, false );
+	}
+
+	/**
+	 * The resolved origin map with one account's postcode written into it.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. Entries the map does not recognise
+	 * are dropped, which is also how the single pair an older version stored is retired, and the
+	 * least recently resolved accounts are pruned past the limit so a merchant rotating tokens
+	 * cannot grow the option without bound. The map comes back identical when nothing moved, so
+	 * the caller writes to the database only on a real change.
+	 *
+	 * @param array  $stored  Map as it stands, keyed by account scope.
+	 * @param string $account Account scope the quote went out under.
+	 * @param string $zipcode Origin the service reported, digits only.
+	 * @param int    $now     Timestamp to record against the entry.
+	 */
+	public static function with_resolved_origin( array $stored, string $account, string $zipcode, int $now, int $limit = self::RESOLVED_ORIGIN_LIMIT ): array {
+		$map = self::normalize_resolved_origins( $stored );
+
+		if ( ( $map[ $account ]['zipcode'] ?? null ) !== $zipcode ) {
+			$map[ $account ] = [ 'zipcode' => $zipcode, 'updated' => $now ];
+		}
+
+		if ( count( $map ) > $limit ) {
+			uasort( $map, static function ( array $a, array $b ): int {
+				return $b['updated'] <=> $a['updated'];
+			} );
+
+			$map = array_slice( $map, 0, $limit, true );
+		}
+
+		return $map === $stored ? $stored : $map;
+	}
+
+	/**
+	 * Only entries shaped the way this version writes them, in the order they were stored.
+	 */
+	private static function normalize_resolved_origins( array $stored ): array {
+		$map = [];
+
+		foreach ( $stored as $account => $entry ) {
+			if ( ! is_string( $account ) || ! is_array( $entry ) || ! isset( $entry['zipcode'] ) ) {
+				continue;
+			}
+
+			$map[ $account ] = [
+				'zipcode' => (string) $entry['zipcode'],
+				'updated' => (int) ( $entry['updated'] ?? 0 ),
+			];
+		}
+
+		return $map;
 	}
 
 	/**
@@ -497,12 +586,9 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 */
 	public static function get_resolved_origin( string $account ): string {
 		$stored = get_option( self::RESOLVED_ORIGIN_OPTION, [] );
+		$stored = is_array( $stored ) ? $stored : [];
 
-		if ( ! is_array( $stored ) || ( $stored['account'] ?? '' ) !== $account ) {
-			return '';
-		}
-
-		return (string) ( $stored['zipcode'] ?? '' );
+		return (string) ( self::normalize_resolved_origins( $stored )[ $account ]['zipcode'] ?? '' );
 	}
 
 	/**
@@ -519,44 +605,67 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 		return $this->origin_notice_html() . parent::get_admin_options_html();
 	}
 
+	/**
+	 * The store postcode fails in two different ways, and the merchant has to be able to tell
+	 * which one is theirs: an unfilled address and a mistyped one have different fixes. So a
+	 * postcode the service would reject gets its own warning saying it is invalid, instead of
+	 * being reported as an address that was never filled in.
+	 */
 	private function origin_notice_html(): string {
-		$store_postcode = self::store_origin_postcode();
-		$general_link   = sprintf(
+		$origin       = self::store_origin();
+		$general_link = sprintf(
 			'<a href="%s">%s</a>',
 			esc_url( admin_url( 'admin.php?page=wc-settings&tab=general' ) ),
 			esc_html__( 'WooCommerce › Configurações › Geral', 'central-do-frete' )
 		);
 
-		if ( '' !== $store_postcode ) {
+		if ( self::ORIGIN_VALID === $origin['status'] ) {
 			return sprintf(
 				'<div class="notice notice-info inline"><p>%s</p></div>',
 				wp_kses_post( sprintf(
 					/* translators: 1: store postcode, 2: link to the WooCommerce general settings */
 					__( 'As cotações saem do CEP da loja, <strong>%1$s</strong>. Para mudar a origem, altere o endereço da loja em %2$s.', 'central-do-frete' ),
-					esc_html( self::format_postcode( $store_postcode ) ),
+					esc_html( self::format_postcode( $origin['postcode'] ) ),
 					$general_link
 				) )
 			);
 		}
 
-		$resolved = self::get_resolved_origin( Cdfrete_API_Client::account_scope( (string) $this->get_option( 'token', '' ) ) );
-
-		$origin_line = '' === $resolved
-			? __( 'A loja está sem CEP, então as cotações são enviadas sem origem e a Central do Frete usa o <strong>endereço de coleta cadastrado na sua conta</strong>.', 'central-do-frete' )
-			: sprintf(
+		$resolved   = self::get_resolved_origin( Cdfrete_API_Client::account_scope( (string) $this->get_option( 'token', '' ) ) );
+		$last_quote = '' === $resolved
+			? ''
+			: ' ' . sprintf(
 				/* translators: %s: postcode the service used on the last quote */
-				__( 'A loja está sem CEP, então as cotações são enviadas sem origem e a Central do Frete usa o endereço de coleta cadastrado na sua conta. Na última cotação isso foi o CEP <strong>%s</strong>.', 'central-do-frete' ),
+				__( 'Na última cotação isso foi o CEP <strong>%s</strong>.', 'central-do-frete' ),
 				esc_html( self::format_postcode( $resolved ) )
 			);
 
-		return sprintf(
-			'<div class="notice notice-warning inline"><p>%1$s</p><p>%2$s</p></div>',
-			wp_kses_post( $origin_line ),
-			wp_kses_post( sprintf(
+		if ( self::ORIGIN_MALFORMED === $origin['status'] ) {
+			$origin_line = sprintf(
+				/* translators: %s: store postcode as the merchant typed it */
+				__( 'O CEP da loja, <strong>%s</strong>, não é válido: um CEP tem 8 números. Enquanto ele não for corrigido, as cotações são enviadas sem origem e a Central do Frete usa o endereço de coleta cadastrado na sua conta.', 'central-do-frete' ),
+				esc_html( $origin['typed'] )
+			);
+
+			$action_line = sprintf(
+				/* translators: %s: link to the WooCommerce general settings */
+				__( 'A origem muda o preço e a lista de transportadoras. Corrija o CEP da loja em %s.', 'central-do-frete' ),
+				$general_link
+			);
+		} else {
+			$origin_line = __( 'A loja está sem CEP, então as cotações são enviadas sem origem e a Central do Frete usa o endereço de coleta cadastrado na sua conta.', 'central-do-frete' );
+
+			$action_line = sprintf(
 				/* translators: %s: link to the WooCommerce general settings */
 				__( 'A origem muda o preço e a lista de transportadoras. Se os seus envios não saem do endereço de coleta da conta, preencha o CEP da loja em %s.', 'central-do-frete' ),
 				$general_link
-			) )
+			);
+		}
+
+		return sprintf(
+			'<div class="notice notice-warning inline"><p>%1$s</p><p>%2$s</p></div>',
+			wp_kses_post( $origin_line . $last_quote ),
+			wp_kses_post( $action_line )
 		);
 	}
 

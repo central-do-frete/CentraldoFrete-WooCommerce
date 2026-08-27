@@ -69,6 +69,13 @@
         button.textContent = t('calculate', 'Calcular');
 
         if (!res.success) {
+          // Some answers are not failures: a region the merchant does not quote is a plain
+          // fact about this postcode, so it is shown as a note instead of an error.
+          if (res.data && res.data.notice && res.data.message) {
+            showNotice(res.data.message);
+            return;
+          }
+
           showError(res.data && res.data.message ? res.data.message : t('requestFailed', 'Erro ao calcular frete.'));
           return;
         }
@@ -89,6 +96,10 @@
 
   function showError(msg) {
     resultsContainer.innerHTML = '<p class="cdfrete-error">' + escapeHtml(msg) + '</p>';
+  }
+
+  function showNotice(msg) {
+    resultsContainer.innerHTML = '<p class="cdfrete-notice">' + escapeHtml(msg) + '</p>';
   }
 
   function renderRates(rates) {
