@@ -66,7 +66,7 @@ Yes. The plugin is the interface to your account inside WooCommerce. Without the
 
 = What does Central do Frete do that a carrier plugin does not? =
 
-We choose which carriers you get to compare, and we keep following the shipment. Carriers are selected on measured performance and reviewed every quarter on delivery time, damage rate and support - not on who pays to appear. When a shipment goes wrong, chasing the carrier is our job, not yours.
+We choose which carriers you get to compare, and we keep following the shipment. Carriers are selected on measured performance and reviewed every quarter on delivery time, damage rate and support. When a shipment goes wrong, chasing the carrier is our job, not yours.
 
 = Does the plugin charge anything? =
 
