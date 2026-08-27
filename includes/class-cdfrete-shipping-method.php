@@ -563,16 +563,20 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 
 	/**
 	 * Only entries shaped the way this version writes them, in the order they were stored.
+	 *
+	 * The key is read back as whatever PHP made of it: an account scope is a sha256 prefix, and
+	 * one that happens to be all digits becomes an integer key on the way into the array. It is
+	 * the shape of the entry that says whether a row belongs to this version, never the key.
 	 */
 	private static function normalize_resolved_origins( array $stored ): array {
 		$map = [];
 
 		foreach ( $stored as $account => $entry ) {
-			if ( ! is_string( $account ) || ! is_array( $entry ) || ! isset( $entry['zipcode'] ) ) {
+			if ( ! is_array( $entry ) || ! isset( $entry['zipcode'] ) ) {
 				continue;
 			}
 
-			$map[ $account ] = [
+			$map[ (string) $account ] = [
 				'zipcode' => (string) $entry['zipcode'],
 				'updated' => (int) ( $entry['updated'] ?? 0 ),
 			];
@@ -602,7 +606,57 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 * loudly when that is not the postcode the merchant set in WooCommerce.
 	 */
 	public function get_admin_options_html(): string {
-		return $this->origin_notice_html() . parent::get_admin_options_html();
+		return $this->token_notice_html() . $this->origin_notice_html() . parent::get_admin_options_html();
+	}
+
+	/**
+	 * Say that this shipping zone has no token, above the settings form.
+	 *
+	 * A zone the merchant added but never pasted a token into looks finished: WooCommerce
+	 * enables it on the spot with the form defaults, and the cargo type list is store wide, so
+	 * a zone with no token of its own can even show the loaded-types tick. It quotes nothing.
+	 * The zone is named because a store carrying the method in several zones needs to know
+	 * which one this is, and the token notice comes first because nothing else on the screen
+	 * matters until there is a token.
+	 */
+	private function token_notice_html(): string {
+		if ( ! empty( $this->get_option( 'token', '' ) ) ) {
+			return '';
+		}
+
+		$panel_link = '<a href="https://app.centraldofrete.com" target="_blank">app.centraldofrete.com</a>';
+		$zone_name  = $this->zone_name();
+
+		$line = '' === $zone_name
+			? sprintf(
+				/* translators: %s: link to the Central do Frete panel */
+				__( 'Esta área de entrega está sem token de acesso, então a Central do Frete não cota nela. Cole o token em %s → Integrações → API.', 'central-do-frete' ),
+				$panel_link
+			)
+			: sprintf(
+				/* translators: 1: shipping zone name, 2: link to the Central do Frete panel */
+				__( 'A área de entrega <strong>%1$s</strong> está sem token de acesso, então a Central do Frete não cota nela. Cole o token em %2$s → Integrações → API.', 'central-do-frete' ),
+				esc_html( $zone_name ),
+				$panel_link
+			);
+
+		return sprintf(
+			'<div class="notice notice-warning inline"><p>%s</p></div>',
+			wp_kses_post( $line )
+		);
+	}
+
+	/**
+	 * The name of the shipping zone this instance sits in, empty when there is none to name.
+	 */
+	private function zone_name(): string {
+		if ( empty( $this->instance_id ) || ! class_exists( 'WC_Shipping_Zones' ) ) {
+			return '';
+		}
+
+		$zone = WC_Shipping_Zones::get_zone_by( 'instance_id', $this->instance_id );
+
+		return $zone instanceof WC_Shipping_Zone ? trim( (string) $zone->get_zone_name() ) : '';
 	}
 
 	/**

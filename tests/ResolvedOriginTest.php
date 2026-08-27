@@ -80,6 +80,39 @@ class ResolvedOriginTest extends TestCase {
 	}
 
 	/**
+	 * An account scope is the first 16 characters of a sha256 digest, so about one token in a
+	 * few thousand produces one that is all digits. PHP stores a canonical decimal string key
+	 * as an integer, so such an account came back from the option with an integer key and was
+	 * thrown away as unrecognised: it was re-added on every uncached quote, which is a database
+	 * write each time, and the settings screen could never name the postcode it resolved to.
+	 */
+	public function test_an_all_digit_account_scope_survives_a_round_trip(): void {
+		$account = '1234567890123456';
+
+		$this->assertSame( $account, (string) (int) $account, 'This account scope must be one PHP stores as an integer key' );
+
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( [], $account, '01310100', 1000 );
+
+		$this->assertSame( '01310100', $map[ $account ]['zipcode'] );
+	}
+
+	public function test_an_all_digit_account_is_not_rewritten_on_every_quote(): void {
+		$account = '1234567890123456';
+
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( [], $account, '01310100', 1000 );
+
+		$this->assertSame( $map, Cdfrete_Shipping_Method::with_resolved_origin( $map, $account, '01310100', 2000 ) );
+	}
+
+	public function test_an_all_digit_account_does_not_evict_the_others(): void {
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( [], '1234567890123456', '01310100', 1000 );
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, self::ACCOUNT_A, '30240440', 1001 );
+
+		$this->assertSame( '01310100', $map['1234567890123456']['zipcode'] );
+		$this->assertSame( '30240440', $map[ self::ACCOUNT_A ]['zipcode'] );
+	}
+
+	/**
 	 * Before this the option held one flat `{account, zipcode, updated}` pair. It has to be
 	 * retired rather than read as if its keys were accounts.
 	 */

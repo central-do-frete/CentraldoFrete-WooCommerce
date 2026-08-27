@@ -131,10 +131,7 @@ class Cdfrete_Frontend_Calculator {
 				'[CALC] Calculadora desligada na área de entrega que atende o CEP %s',
 				$postcode
 			) );
-			wp_send_json_error( [
-				'message' => __( 'O cálculo de frete não está disponível para esta região.', 'central-do-frete' ),
-				'notice'  => true,
-			] );
+			wp_send_json_error( self::region_unavailable() );
 		}
 
 		// The restriction of the zone that answers, not of any zone that happens to allow it.
@@ -149,9 +146,17 @@ class Cdfrete_Frontend_Calculator {
 			wp_send_json_error( [ 'message' => __( 'Este produto não é cotado pela Central do Frete.', 'central-do-frete' ) ] );
 		}
 
+		// Reachable since drawing the widget and answering it stopped sharing one instance: the
+		// form is on the page because some zone offers the calculator, and the zone this
+		// postcode resolves to can be one the merchant added but never pasted a token into.
+		// Which of the two it is belongs in the log; the shopper only needs to know no quote is
+		// coming for their region, in the same words as any other zone that does not answer.
 		if ( empty( $settings['token'] ) ) {
-			Cdfrete_API_Client::log( 'error', '[CALC] Token não configurado' );
-			wp_send_json_error( [ 'message' => __( 'Plugin não configurado.', 'central-do-frete' ) ] );
+			Cdfrete_API_Client::log( 'error', sprintf(
+				'[CALC] Token não configurado na área de entrega que atende o CEP %s',
+				$postcode
+			) );
+			wp_send_json_error( self::region_unavailable() );
 		}
 
 		// Empty is allowed: the service then quotes from the pickup address of the account.
@@ -327,6 +332,21 @@ class Cdfrete_Frontend_Calculator {
 		}
 
 		wp_send_json_success( $response );
+	}
+
+	/**
+	 * The answer for a postcode whose zone does not quote it.
+	 *
+	 * A zone that has the calculator switched off and a zone that has no token are the same
+	 * fact to the shopper - no price is coming for where they live - and the difference is the
+	 * merchant's to fix, so it stays in the log. Sent as a note rather than an error because
+	 * nothing failed.
+	 */
+	private static function region_unavailable(): array {
+		return [
+			'message' => __( 'O cálculo de frete não está disponível para esta região.', 'central-do-frete' ),
+			'notice'  => true,
+		];
 	}
 
 	/**
