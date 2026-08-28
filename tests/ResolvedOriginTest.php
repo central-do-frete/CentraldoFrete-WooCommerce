@@ -66,7 +66,7 @@ class ResolvedOriginTest extends TestCase {
 		$this->assertSame( 2000, $map[ self::ACCOUNT_A ]['updated'] );
 	}
 
-	public function test_the_map_is_bounded_and_drops_the_least_recently_resolved(): void {
+	public function test_the_map_is_bounded_and_drops_the_least_recently_changed(): void {
 		$map = [];
 
 		foreach ( [ 'account-1', 'account-2', 'account-3' ] as $i => $account ) {
@@ -77,6 +77,41 @@ class ResolvedOriginTest extends TestCase {
 		$this->assertArrayNotHasKey( 'account-1', $map );
 		$this->assertSame( '01310101', $map['account-2']['zipcode'] );
 		$this->assertSame( '01310102', $map['account-3']['zipcode'] );
+	}
+
+	/**
+	 * "Least recently changed" is the measure, and it is not the same as least recently used: an
+	 * entry is rewritten only when the origin moved, precisely so an unchanged origin costs no
+	 * database write, so its timestamp dates the last move and never the last quote. An account
+	 * quoting daily from a pickup address it never changed therefore keeps an old timestamp and
+	 * is the first out. Written down because the two readings pick opposite victims.
+	 */
+	public function test_quoting_again_from_an_unchanged_origin_does_not_move_an_account_up(): void {
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( [], 'account-1', '01310100', 1000, 2 );
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, 'account-2', '30240440', 1001, 2 );
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, 'account-1', '01310100', 3000, 2 );
+
+		$this->assertSame( 1000, $map['account-1']['updated'] );
+
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, 'account-3', '70040010', 3001, 2 );
+
+		$this->assertCount( 2, $map );
+		$this->assertArrayNotHasKey( 'account-1', $map );
+	}
+
+	/**
+	 * An account that moved its pickup address is by that fact the most recently changed, so it
+	 * survives a prune that its original timestamp would have lost.
+	 */
+	public function test_an_account_that_moved_its_origin_survives_the_prune(): void {
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( [], 'account-1', '01310100', 1000, 2 );
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, 'account-2', '30240440', 1001, 2 );
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, 'account-1', '70040010', 3000, 2 );
+		$map = Cdfrete_Shipping_Method::with_resolved_origin( $map, 'account-3', '88010400', 3001, 2 );
+
+		$this->assertCount( 2, $map );
+		$this->assertSame( '70040010', $map['account-1']['zipcode'] );
+		$this->assertArrayNotHasKey( 'account-2', $map );
 	}
 
 	/**

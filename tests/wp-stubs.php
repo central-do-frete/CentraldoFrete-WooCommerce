@@ -17,6 +17,17 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 }
 
 /**
+ * With no translation loaded WordPress hands the string straight back, which is the contract
+ * the shopper-facing copy is read under here: the tests assert what the messages say, in the
+ * language they are written in.
+ */
+if ( ! function_exists( '__' ) ) {
+	function __( $text, $domain = 'default' ) {
+		return $text;
+	}
+}
+
+/**
  * `Cdfrete_Shipping_Method` extends a WooCommerce class, so the file cannot be loaded without
  * one. This stub exists only to make the file loadable: the tests call static helpers that
  * touch nothing on the parent, and nothing here is meant to imitate WooCommerce behaviour.

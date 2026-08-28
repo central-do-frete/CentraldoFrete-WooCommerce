@@ -4,7 +4,7 @@ Tags: shipping, freight, carriers, brazil, woocommerce
 Requires at least: 5.6
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.2.1
+Stable tag: 3.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -97,11 +97,13 @@ Turn on **Modo debug** in the method settings and check the logs under **WooComm
 
 == Changelog ==
 
-= 3.2.1 =
+= 3.3.0 =
 * **The product page calculator setting changed meaning: it now decides whether that zone answers, not only whether the field is drawn.** A shopper whose postcode fell into a zone with the calculator turned off still got prices from that zone, because the switch was read once for the whole store. Each zone's switch now governs its own answers, and a shopper in a region you turned it off for is told the calculation is not available there. Turned on in every zone, which is the default, nothing changes
 * A store postcode that is filled in but is not 8 numbers no longer breaks every quote. It is treated as no postcode at all, so the quote leaves from the pickup address registered in your account, and the method settings screen says the store postcode is invalid - a separate warning from the one for a store address that was never filled in, because the fix is different
 * Stores that use Central do Frete in more than one shipping zone with different tokens now see the right pickup postcode on each zone's settings screen. The plugin kept only the last one resolved, so two zones overwrote each other and the screen named whichever account had quoted most recently
-* A shipping zone you added Central do Frete to but never pasted a token into now says so on its settings screen, and names the zone. It looked finished - WooCommerce enables the method as soon as you add it, and the cargo type list is shared by the whole store - while quoting nothing. Shoppers whose postcode falls in a zone like that now read that the calculation is not available for their region, instead of the plugin's own "Plugin não configurado"
+* A shipping zone you added Central do Frete to but never pasted a token into now says so on its settings screen, and names the zone. It looked finished - WooCommerce enables the method as soon as you add it, and the cargo type list is shared by the whole store - while quoting nothing
+* The product page calculator now tells a shopper three different things instead of one when no price is coming, each true of their own case: the calculation is not available for that region, when you turned the calculator off in the zone that covers it; that we could not calculate the freight for that postcode and to contact the store, when the zone that covers it has no token or was added and never saved; and that the delivery area could not be identified, when no zone matched at all. None of the three is shown as an error, and only the first says anything about where you deliver
+* Shoppers no longer read "Não atendemos este CEP" for a postcode you do deliver to. A zone added and never saved was reaching them with that sentence, and so was a store that defines its zones by state. This changes what the 3.2.0 upgrade notice told you about zones defined by state: the calculator now says it could not identify the delivery area, not that the postcode is not served. The cart and the checkout are unaffected, as they were then
 
 = 3.2.0 =
 * A store with no postcode of its own now gets quotes: the request goes out with no origin and Central do Frete uses the pickup address registered in your account. Until now the plugin gave up and offered no freight at all
@@ -143,8 +145,8 @@ Turn on **Modo debug** in the method settings and check the logs under **WooComm
 
 == Upgrade Notice ==
 
-= 3.2.1 =
-The product page calculator switch now decides whether a shipping zone answers, not only whether the field is drawn. If you use Central do Frete in more than one zone and turned the calculator off in one of them, shoppers with a postcode in that zone now read that the calculation is not available there, instead of getting that zone's prices. With the calculator on everywhere, which is the default, nothing changes. A store postcode that is filled in but is not 8 numbers now quotes from your account's pickup address instead of failing, and the settings screen says the postcode is invalid.
+= 3.3.0 =
+The product page calculator switch now decides whether a shipping zone answers, not only whether the field is drawn. If you use Central do Frete in more than one zone and turned the calculator off in one of them, shoppers with a postcode in that zone now read that the calculation is not available there, instead of getting that zone's prices. With the calculator on everywhere, which is the default, nothing changes. A store postcode that is filled in but is not 8 numbers now quotes from your account's pickup address instead of failing, and the settings screen says the postcode is invalid. This also corrects what the 3.2.0 notice below says about zones defined by state: the calculator no longer answers that it does not serve the postcode, it says the delivery area could not be identified.
 
 = 3.2.0 =
 If your store has no postcode set, Central do Frete now quotes from the pickup address registered in your account instead of offering no freight. Open the method settings: the screen states which postcode is in use. Cached quotes are cleared once. On a store that uses the method in more than one shipping zone and defines those zones by state, the product page calculator may answer that it does not serve a postcode; the cart and the checkout are unaffected.

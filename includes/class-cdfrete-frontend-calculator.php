@@ -5,6 +5,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Cdfrete_Frontend_Calculator {
 
+	/** What the zone a shopper's postcode resolves to can do about quoting it. */
+	public const QUOTE_READY           = 'ready';
+	public const QUOTE_NO_ZONE         = 'no_zone';
+	public const QUOTE_CALCULATOR_OFF  = 'calculator_off';
+	public const QUOTE_NEVER_SAVED     = 'never_saved';
+	public const QUOTE_NO_TOKEN        = 'no_token';
+
 	public static function init(): void {
 		add_action( 'woocommerce_after_add_to_cart_form', [ __CLASS__, 'render_calculator' ] );
 		add_action( 'wp_ajax_cdfrete_calculate_shipping', [ __CLASS__, 'ajax_calculate' ] );
@@ -108,30 +115,27 @@ class Cdfrete_Frontend_Calculator {
 		// shipping zone - and therefore which token, fee, class restriction and display rules -
 		// govern this quote. The state is deliberately left out: the session may hold one from
 		// another address, and a wrong state matches a wrong zone.
-		$settings = Cdfrete_Shipping_Method::get_settings_for_destination( [
+		$resolved = Cdfrete_Shipping_Method::resolve_for_destination( [
 			'country'  => 'BR',
 			'state'    => '',
 			'postcode' => $postcode,
 		] );
 
-		if ( empty( $settings ) ) {
-			Cdfrete_API_Client::log( 'warning', sprintf(
-				'[CALC] Nenhuma área de entrega com a Central do Frete corresponde ao CEP %s',
-				$postcode
-			) );
-			wp_send_json_error( [ 'message' => __( 'Não atendemos este CEP.', 'central-do-frete' ) ] );
-		}
+		$settings = $resolved['settings'];
+		$state    = self::quote_state( $resolved['instance_id'], $settings );
 
-		// The switch belongs to the zone that answers, so it decides the answer and not only
-		// whether the form was drawn: the widget is on the page because some zone offers it,
-		// and the zone this postcode falls into is a different question. A shopper whose region
-		// is not covered is told so, rather than being handed prices the merchant turned off.
-		if ( ! self::calculator_is_offered( $settings ) ) {
-			Cdfrete_API_Client::log( 'debug', sprintf(
-				'[CALC] Calculadora desligada na área de entrega que atende o CEP %s',
-				$postcode
-			) );
-			wp_send_json_error( self::region_unavailable() );
+		// Not dead defensive code. Drawing the widget and answering it stopped sharing one
+		// instance - the form is on the page because some zone offers the calculator, while the
+		// answer comes from the zone this postcode resolves to - so a zone the merchant added
+		// and never finished can now be the one that answers. That was impossible while a
+		// single arbitrary instance did both jobs: the zone that drew the form was the zone
+		// that answered, and it had a token because otherwise nothing was drawn. Each way of
+		// not quoting is a different fact, and the shopper reads only the part that is theirs.
+		if ( self::QUOTE_READY !== $state ) {
+			$diagnostic = self::quote_state_log( $state, $resolved['instance_id'], $postcode );
+
+			Cdfrete_API_Client::log( $diagnostic['level'], $diagnostic['message'] );
+			wp_send_json_error( self::unavailable_answer( $state ) );
 		}
 
 		// The restriction of the zone that answers, not of any zone that happens to allow it.
@@ -144,19 +148,6 @@ class Cdfrete_Frontend_Calculator {
 				$product_class
 			) );
 			wp_send_json_error( [ 'message' => __( 'Este produto não é cotado pela Central do Frete.', 'central-do-frete' ) ] );
-		}
-
-		// Reachable since drawing the widget and answering it stopped sharing one instance: the
-		// form is on the page because some zone offers the calculator, and the zone this
-		// postcode resolves to can be one the merchant added but never pasted a token into.
-		// Which of the two it is belongs in the log; the shopper only needs to know no quote is
-		// coming for their region, in the same words as any other zone that does not answer.
-		if ( empty( $settings['token'] ) ) {
-			Cdfrete_API_Client::log( 'error', sprintf(
-				'[CALC] Token não configurado na área de entrega que atende o CEP %s',
-				$postcode
-			) );
-			wp_send_json_error( self::region_unavailable() );
 		}
 
 		// Empty is allowed: the service then quotes from the pickup address of the account.
@@ -335,18 +326,126 @@ class Cdfrete_Frontend_Calculator {
 	}
 
 	/**
-	 * The answer for a postcode whose zone does not quote it.
+	 * What the zone a postcode resolves to can do about quoting it.
 	 *
-	 * A zone that has the calculator switched off and a zone that has no token are the same
-	 * fact to the shopper - no price is coming for where they live - and the difference is the
-	 * merchant's to fix, so it stays in the log. Sent as a note rather than an error because
-	 * nothing failed.
+	 * Kept free of WordPress so the split can be tested on its own. The four ways of not
+	 * quoting are separate answers because they are separate facts: no zone here carries the
+	 * method at all, the zone that does was added and never saved, it was saved without a
+	 * token, or the merchant deliberately turned the calculator off for it. Never saved is read
+	 * before the switch because a zone with no settings has no switch to read - the field
+	 * defaults to on, which would report a choice the merchant never made.
+	 *
+	 * @param int|null $instance_id Instance the destination resolved to, null when none did.
+	 * @param array    $settings    Settings of that instance, empty when it has none stored.
 	 */
-	private static function region_unavailable(): array {
+	public static function quote_state( ?int $instance_id, array $settings ): string {
+		if ( null === $instance_id ) {
+			return self::QUOTE_NO_ZONE;
+		}
+
+		if ( empty( $settings ) ) {
+			return self::QUOTE_NEVER_SAVED;
+		}
+
+		if ( ! self::calculator_is_offered( $settings ) ) {
+			return self::QUOTE_CALCULATOR_OFF;
+		}
+
+		if ( empty( $settings['token'] ) ) {
+			return self::QUOTE_NO_TOKEN;
+		}
+
+		return self::QUOTE_READY;
+	}
+
+	/**
+	 * The answer for a postcode that gets no price, one true sentence per state.
+	 *
+	 * Three of them, because a shopper can only act on what is theirs. A region the merchant
+	 * switched the calculator off for is exactly that. A zone that cannot quote is not a fact
+	 * about coverage and is nothing the shopper can fix, so it claims neither, and it does not
+	 * suggest trying again - the next attempt fails the same way until the merchant finishes
+	 * the zone. A postcode no zone matched says only that, because a store defining its zones
+	 * by state does serve those postcodes and the calculator simply cannot tell which zone
+	 * they belong to. All three are notes rather than errors: nothing failed.
+	 *
+	 * @param string $state One of the QUOTE_ constants, other than QUOTE_READY.
+	 */
+	public static function unavailable_answer( string $state ): array {
+		switch ( $state ) {
+			case self::QUOTE_CALCULATOR_OFF:
+				$message = __( 'O cálculo de frete não está disponível para esta região.', 'central-do-frete' );
+				break;
+
+			case self::QUOTE_NO_ZONE:
+				$message = __( 'Não foi possível identificar a área de entrega deste CEP. Confira o número digitado ou entre em contato com a loja.', 'central-do-frete' );
+				break;
+
+			default:
+				$message = __( 'Não conseguimos calcular o frete para este CEP nesta página. Entre em contato com a loja para saber as opções de entrega.', 'central-do-frete' );
+				break;
+		}
+
 		return [
-			'message' => __( 'O cálculo de frete não está disponível para esta região.', 'central-do-frete' ),
+			'message' => $message,
 			'notice'  => true,
 		];
+	}
+
+	/**
+	 * What the log says about a postcode that gets no price, naming which state occurred.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. This is where the difference the
+	 * shopper is spared is written down, in the merchant's own terms and against the instance
+	 * it belongs to, so an unfinished zone can be found and finished.
+	 *
+	 * @param string   $state       One of the QUOTE_ constants, other than QUOTE_READY.
+	 * @param int|null $instance_id Instance the destination resolved to, null when none did.
+	 * @param string   $postcode    Destination postcode, eight digits.
+	 *
+	 * @return array{level: string, message: string}
+	 */
+	public static function quote_state_log( string $state, ?int $instance_id, string $postcode ): array {
+		switch ( $state ) {
+			case self::QUOTE_NO_ZONE:
+				return [
+					'level'   => 'warning',
+					'message' => sprintf(
+						'[CALC] Nenhuma área de entrega com a Central do Frete corresponde ao CEP %s',
+						$postcode
+					),
+				];
+
+			case self::QUOTE_NEVER_SAVED:
+				return [
+					'level'   => 'error',
+					'message' => sprintf(
+						'[CALC] Área de entrega #%d nunca foi salva: a Central do Frete foi adicionada à zona que atende o CEP %s, mas as configurações não foram gravadas',
+						(int) $instance_id,
+						$postcode
+					),
+				];
+
+			case self::QUOTE_CALCULATOR_OFF:
+				return [
+					'level'   => 'debug',
+					'message' => sprintf(
+						'[CALC] Calculadora desligada na área de entrega #%d, que atende o CEP %s',
+						(int) $instance_id,
+						$postcode
+					),
+				];
+
+			default:
+				return [
+					'level'   => 'error',
+					'message' => sprintf(
+						'[CALC] Token não configurado na área de entrega #%d, que atende o CEP %s',
+						(int) $instance_id,
+						$postcode
+					),
+				];
+		}
 	}
 
 	/**

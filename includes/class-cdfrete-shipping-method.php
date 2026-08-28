@@ -10,7 +10,7 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	/** Origins the service resolved for quotes sent without one, keyed by account scope. */
 	private const RESOLVED_ORIGIN_OPTION = 'cdfrete_resolved_origin';
 
-	/** How many accounts that map keeps, the least recently resolved dropping out first. */
+	/** How many accounts that map keeps, the least recently changed dropping out first. */
 	private const RESOLVED_ORIGIN_LIMIT = 20;
 
 	/** How the store postcode stands as a quotation origin. */
@@ -534,9 +534,11 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 *
 	 * Kept free of WordPress so it can be tested on its own. Entries the map does not recognise
 	 * are dropped, which is also how the single pair an older version stored is retired, and the
-	 * least recently resolved accounts are pruned past the limit so a merchant rotating tokens
-	 * cannot grow the option without bound. The map comes back identical when nothing moved, so
-	 * the caller writes to the database only on a real change.
+	 * accounts whose origin changed longest ago are pruned past the limit so a merchant rotating
+	 * tokens cannot grow the option without bound. The map comes back identical when nothing
+	 * moved, so the caller writes to the database only on a real change - which is why `updated`
+	 * dates the last change to an origin and not the last quote that confirmed it, and why the
+	 * prune goes by that same measure rather than by recent use.
 	 *
 	 * @param array  $stored  Map as it stands, keyed by account scope.
 	 * @param string $account Account scope the quote went out under.
@@ -1226,9 +1228,28 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 * @param array $destination Package destination: country, state and postcode.
 	 */
 	public static function get_settings_for_destination( array $destination ): array {
+		return self::resolve_for_destination( $destination )['settings'];
+	}
+
+	/**
+	 * The instance that serves a destination, together with its settings.
+	 *
+	 * Empty settings are not the same fact as no instance, and a caller that has to tell the
+	 * two apart cannot do it from the settings alone: WooCommerce enables the method the moment
+	 * it is added to a zone but stores no settings until the merchant saves the form, so a zone
+	 * that answers can answer with nothing. The instance id says which of the two happened.
+	 *
+	 * @param array $destination Package destination: country, state and postcode.
+	 *
+	 * @return array{instance_id: int|null, settings: array}
+	 */
+	public static function resolve_for_destination( array $destination ): array {
 		$instance_id = self::instance_id_for_destination( $destination );
 
-		return null === $instance_id ? [] : self::get_instance_settings( $instance_id );
+		return [
+			'instance_id' => $instance_id,
+			'settings'    => null === $instance_id ? [] : self::get_instance_settings( $instance_id ),
+		];
 	}
 
 	private static function instance_id_for_destination( array $destination ): ?int {
