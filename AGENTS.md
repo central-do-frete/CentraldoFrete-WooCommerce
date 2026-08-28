@@ -44,6 +44,11 @@ calculator renders when any zone offers it, and then the zone the shopper's post
 decides whether it answers. Anything keyed per account (cached prices, the resolved origin map)
 is likewise keyed by `Cdfrete_API_Client::account_scope()`, never by a single store-wide value.
 
+Every sentence a shopper reads instead of a price leaves through
+`Cdfrete_Frontend_Calculator::refuse()`, and it takes a coverage verdict with no default:
+a message about the region is only released to a caller that read the setting withholding the
+quote. Write new refusals there rather than in the AJAX handler.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

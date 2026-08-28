@@ -8,9 +8,17 @@ class Cdfrete_Frontend_Calculator {
 	/** What the zone a shopper's postcode resolves to can do about quoting it. */
 	public const QUOTE_READY           = 'ready';
 	public const QUOTE_NO_ZONE         = 'no_zone';
+	public const QUOTE_METHOD_OFF      = 'method_off';
 	public const QUOTE_CALCULATOR_OFF  = 'calculator_off';
 	public const QUOTE_NEVER_SAVED     = 'never_saved';
 	public const QUOTE_NO_TOKEN        = 'no_token';
+
+	/** A refusal that is not about the zone: the zone quotes, but not this product's class. */
+	public const REFUSE_CLASS_EXCLUDED = 'class_excluded';
+
+	/** Whether the plugin read a setting that withholds the quote here, or does not know. */
+	public const COVERAGE_RULED_OUT = 'ruled_out';
+	public const COVERAGE_UNKNOWN   = 'unknown';
 
 	public static function init(): void {
 		add_action( 'woocommerce_after_add_to_cart_form', [ __CLASS__, 'render_calculator' ] );
@@ -135,7 +143,7 @@ class Cdfrete_Frontend_Calculator {
 			$diagnostic = self::quote_state_log( $state, $resolved['instance_id'], $postcode );
 
 			Cdfrete_API_Client::log( $diagnostic['level'], $diagnostic['message'] );
-			wp_send_json_error( self::unavailable_answer( $state ) );
+			wp_send_json_error( self::refuse( $state, self::coverage_verdict( $state ) ) );
 		}
 
 		// The restriction of the zone that answers, not of any zone that happens to allow it.
@@ -143,11 +151,15 @@ class Cdfrete_Frontend_Calculator {
 
 		if ( ! Cdfrete_Shipping_Class_Rule::allows_for_settings( [ $product_class ], $settings ) ) {
 			Cdfrete_API_Client::log( 'debug', sprintf(
-				'[CALC] Produto %d fora da restrição de classe de entrega (classe: %s)',
+				'[CALC] Produto %d fora da restrição de classe de entrega da área de entrega #%d (classe: %s)',
 				$product_id,
+				(int) $resolved['instance_id'],
 				$product_class
 			) );
-			wp_send_json_error( [ 'message' => __( 'Este produto não é cotado pela Central do Frete.', 'central-do-frete' ) ] );
+
+			// The rule of the zone that answers was read, so the region is settled; the rest of
+			// the store was not read and keeps its own zones' rules.
+			wp_send_json_error( self::refuse( self::REFUSE_CLASS_EXCLUDED, self::COVERAGE_RULED_OUT ) );
 		}
 
 		// Empty is allowed: the service then quotes from the pickup address of the account.
@@ -328,12 +340,14 @@ class Cdfrete_Frontend_Calculator {
 	/**
 	 * What the zone a postcode resolves to can do about quoting it.
 	 *
-	 * Kept free of WordPress so the split can be tested on its own. The four ways of not
+	 * Kept free of WordPress so the split can be tested on its own. The five ways of not
 	 * quoting are separate answers because they are separate facts: no zone here carries the
 	 * method at all, the zone that does was added and never saved, it was saved without a
-	 * token, or the merchant deliberately turned the calculator off for it. Never saved is read
-	 * before the switch because a zone with no settings has no switch to read - the field
-	 * defaults to on, which would report a choice the merchant never made.
+	 * token, the merchant turned the method itself off for it, or turned off only the product
+	 * page calculator. Never saved is read before either switch because a zone with no settings
+	 * has no switch to read - both fields default to on, which would report a choice the
+	 * merchant never made. The method switch is read before the calculator one because a method
+	 * that is off quotes nowhere, calculator or not.
 	 *
 	 * @param int|null $instance_id Instance the destination resolved to, null when none did.
 	 * @param array    $settings    Settings of that instance, empty when it has none stored.
@@ -345,6 +359,10 @@ class Cdfrete_Frontend_Calculator {
 
 		if ( empty( $settings ) ) {
 			return self::QUOTE_NEVER_SAVED;
+		}
+
+		if ( ! self::method_is_enabled( $settings ) ) {
+			return self::QUOTE_METHOD_OFF;
 		}
 
 		if ( ! self::calculator_is_offered( $settings ) ) {
@@ -359,37 +377,95 @@ class Cdfrete_Frontend_Calculator {
 	}
 
 	/**
-	 * The answer for a postcode that gets no price, one true sentence per state.
+	 * The one place a shopper is told there is no price.
 	 *
-	 * Three of them, because a shopper can only act on what is theirs. A region the merchant
-	 * switched the calculator off for is exactly that. A zone that cannot quote is not a fact
-	 * about coverage and is nothing the shopper can fix, so it claims neither, and it does not
-	 * suggest trying again - the next attempt fails the same way until the merchant finishes
-	 * the zone. A postcode no zone matched says only that, because a store defining its zones
-	 * by state does serve those postcodes and the calculator simply cannot tell which zone
-	 * they belong to. All three are notes rather than errors: nothing failed.
+	 * The coverage verdict is a required argument with no default because refusals written here
+	 * kept asserting what nobody had checked: one of them told shoppers the store does not quote
+	 * a product it quotes every day, and they left instead of trying the cart. Whoever writes the
+	 * next refusal will not have read any of that, so the question is put in the signature where
+	 * it cannot be skipped, and a sentence written for a verdict the caller did not reach is
+	 * dropped for the one that claims nothing. Nothing failed here, so nothing arrives as an
+	 * error either.
 	 *
-	 * @param string $state One of the QUOTE_ constants, other than QUOTE_READY.
+	 * @param string $cause    Why there is no price: a QUOTE_ constant other than QUOTE_READY,
+	 *                         or REFUSE_CLASS_EXCLUDED.
+	 * @param string $coverage COVERAGE_RULED_OUT only when the plugin read the setting that
+	 *                         withholds the quote in this region, COVERAGE_UNKNOWN otherwise.
 	 */
-	public static function unavailable_answer( string $state ): array {
-		switch ( $state ) {
-			case self::QUOTE_CALCULATOR_OFF:
-				$message = __( 'O cálculo de frete não está disponível para esta região.', 'central-do-frete' );
-				break;
+	public static function refuse( string $cause, string $coverage ): array {
+		$refusals = self::refusals();
+		$refusal  = $refusals[ $cause ] ?? null;
 
-			case self::QUOTE_NO_ZONE:
-				$message = __( 'Não foi possível identificar a área de entrega deste CEP. Confira o número digitado ou entre em contato com a loja.', 'central-do-frete' );
-				break;
-
-			default:
-				$message = __( 'Não conseguimos calcular o frete para este CEP nesta página. Entre em contato com a loja para saber as opções de entrega.', 'central-do-frete' );
-				break;
+		if ( null === $refusal || $refusal['coverage'] !== $coverage ) {
+			$refusal = $refusals[ self::QUOTE_NEVER_SAVED ];
 		}
 
 		return [
-			'message' => $message,
+			'message' => $refusal['message'],
 			'notice'  => true,
 		];
+	}
+
+	/**
+	 * One true sentence per refusal, next to the verdict it was written under.
+	 *
+	 * A region the merchant switched off is the only thing here the plugin can call a decision,
+	 * and it says so without naming the switch, which is the merchant's business. The zone that
+	 * excludes a shipping class is settled too, but only for that region: the sentence used to
+	 * read store wide and sent shoppers away from a product other zones quote. An unfinished
+	 * zone is not a coverage fact and is nothing the shopper can fix, so it claims neither and
+	 * does not suggest trying again - the next attempt fails the same way until the merchant
+	 * finishes the zone. A postcode no zone matched says only that, because a store defining its
+	 * zones by state does serve those postcodes and the calculator cannot tell which zone they
+	 * belong to.
+	 */
+	private static function refusals(): array {
+		$unfinished = __( 'Não conseguimos calcular o frete para este CEP nesta página. Entre em contato com a loja para saber as opções de entrega.', 'central-do-frete' );
+		$region_off = __( 'O cálculo de frete não está disponível para esta região.', 'central-do-frete' );
+
+		return [
+			self::QUOTE_METHOD_OFF => [
+				'coverage' => self::COVERAGE_RULED_OUT,
+				'message'  => $region_off,
+			],
+			self::QUOTE_CALCULATOR_OFF => [
+				'coverage' => self::COVERAGE_RULED_OUT,
+				'message'  => $region_off,
+			],
+			self::REFUSE_CLASS_EXCLUDED => [
+				'coverage' => self::COVERAGE_RULED_OUT,
+				'message'  => __( 'Este produto não é cotado pela Central do Frete na região deste CEP. Entre em contato com a loja para saber as opções de entrega.', 'central-do-frete' ),
+			],
+			self::QUOTE_NO_ZONE => [
+				'coverage' => self::COVERAGE_UNKNOWN,
+				'message'  => __( 'Não foi possível identificar a área de entrega deste CEP. Confira o número digitado ou entre em contato com a loja.', 'central-do-frete' ),
+			],
+			self::QUOTE_NEVER_SAVED => [
+				'coverage' => self::COVERAGE_UNKNOWN,
+				'message'  => $unfinished,
+			],
+			self::QUOTE_NO_TOKEN => [
+				'coverage' => self::COVERAGE_UNKNOWN,
+				'message'  => $unfinished,
+			],
+		];
+	}
+
+	/**
+	 * What the plugin actually verified about coverage when a zone gave no price.
+	 *
+	 * Kept free of WordPress so it can be tested on its own, and kept apart from the sentences
+	 * on purpose: this reads the state the code reached, `refusals()` declares what each
+	 * sentence asserts, and `refuse()` only lets a sentence out when the two agree. A switch the
+	 * merchant turned off for that zone is the only proof the plugin has that the region gets no
+	 * quote. An unfinished zone and a postcode no zone matched prove nothing about coverage.
+	 *
+	 * @param string $state One of the QUOTE_ constants, other than QUOTE_READY.
+	 */
+	public static function coverage_verdict( string $state ): string {
+		$switched_off = [ self::QUOTE_METHOD_OFF, self::QUOTE_CALCULATOR_OFF ];
+
+		return in_array( $state, $switched_off, true ) ? self::COVERAGE_RULED_OUT : self::COVERAGE_UNKNOWN;
 	}
 
 	/**
@@ -421,6 +497,16 @@ class Cdfrete_Frontend_Calculator {
 					'level'   => 'error',
 					'message' => sprintf(
 						'[CALC] Área de entrega #%d nunca foi salva: a Central do Frete foi adicionada à zona que atende o CEP %s, mas as configurações não foram gravadas',
+						(int) $instance_id,
+						$postcode
+					),
+				];
+
+			case self::QUOTE_METHOD_OFF:
+				return [
+					'level'   => 'debug',
+					'message' => sprintf(
+						'[CALC] Método de entrega desativado na área de entrega #%d, que atende o CEP %s',
 						(int) $instance_id,
 						$postcode
 					),
@@ -462,13 +548,32 @@ class Cdfrete_Frontend_Calculator {
 	}
 
 	/**
+	 * Whether the merchant left "Ativar método de entrega" on for one instance.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. `is_available()` reads the same
+	 * checkbox for the cart and the checkout, and it is a different switch from the zone screen
+	 * toggle `get_enabled_instance_ids()` reads, so the calculator has to read it too: without
+	 * it a zone quotes on the product page while the cart offers that region nothing. Absent
+	 * counts as on, which is the field's own default.
+	 *
+	 * @param array $settings Settings of a single instance.
+	 */
+	public static function method_is_enabled( array $settings ): bool {
+		return ( $settings['enabled'] ?? 'yes' ) === 'yes';
+	}
+
+	/**
 	 * The product page has no destination yet, so the calculator shows up when any enabled
 	 * instance is configured to offer it. Which zone answers is decided once the shopper
-	 * types a postcode, and that zone's own switch decides whether it answers at all.
+	 * types a postcode, and that zone's own switches decide whether it answers at all.
 	 */
 	private static function any_instance_offers_the_calculator(): bool {
 		foreach ( Cdfrete_Shipping_Method::get_all_settings() as $settings ) {
-			if ( ! empty( $settings['token'] ) && self::calculator_is_offered( $settings ) ) {
+			if ( empty( $settings['token'] ) || ! self::method_is_enabled( $settings ) ) {
+				continue;
+			}
+
+			if ( self::calculator_is_offered( $settings ) ) {
 				return true;
 			}
 		}

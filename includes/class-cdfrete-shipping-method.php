@@ -1227,8 +1227,10 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 *
 	 * "Offers this method" here means the zone method row is enabled, which is the zone screen
 	 * toggle. It is not the same as the instance's own "Ativar método de entrega" checkbox:
-	 * that one lives in the settings and is read by `is_available()`, so a zone can be matched
-	 * here while the cart and the checkout offer nothing for it.
+	 * that one lives in the settings, so a zone can be matched here with the method switched off
+	 * in it. Every caller has to read that checkbox for itself - `is_available()` does for the
+	 * cart and the checkout, `Cdfrete_Frontend_Calculator::method_is_enabled()` for the product
+	 * page calculator.
 	 *
 	 * @param array $destination Package destination: country, state and postcode.
 	 */
@@ -1268,13 +1270,13 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 			return null;
 		}
 
-		$zone = WC_Shipping_Zones::get_zone_matching_package( [
-			'destination' => wp_parse_args( $destination, [
-				'country'  => 'BR',
-				'state'    => '',
-				'postcode' => '',
-			] ),
+		$destination = wp_parse_args( $destination, [
+			'country'  => 'BR',
+			'state'    => '',
+			'postcode' => '',
 		] );
+
+		$zone = WC_Shipping_Zones::get_zone_matching_package( [ 'destination' => $destination ] );
 
 		$zone_instance_ids = [];
 
@@ -1284,7 +1286,41 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 			}
 		}
 
-		return self::pick_instance( $enabled, $zone_instance_ids );
+		$picked = self::pick_instance( $enabled, $zone_instance_ids );
+
+		if ( '' !== trim( (string) $destination['state'] ) ) {
+			return $picked;
+		}
+
+		return self::stateless_pick( $picked, $zone_instance_ids, self::state_defined_instance_ids() );
+	}
+
+	/**
+	 * Whether a zone matched without a state is the zone the destination really falls into.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. WooCommerce matches a state
+	 * location as "<country>:<state>", so with no state that criterion matches nothing: a zone
+	 * defined by state is skipped rather than considered, and the query falls through to the
+	 * next zone by order, which may be a country wide zone carrying this method with another
+	 * token, another fee and another restriction. Nothing distinguishes that from a real match,
+	 * so while a zone defined by state carries the method anywhere else, the match does not
+	 * stand and the postcode gets no price instead of another region's.
+	 *
+	 * @param int|null $picked            Instance the matched zone points at, null when none did.
+	 * @param int[]    $zone_instance_ids Ids this method has in the matched zone.
+	 * @param int[]    $state_defined_ids Ids of enabled instances in zones defined by state.
+	 */
+	public static function stateless_pick( ?int $picked, array $zone_instance_ids, array $state_defined_ids ): ?int {
+		if ( null === $picked ) {
+			return null;
+		}
+
+		$elsewhere = array_diff(
+			array_map( 'intval', $state_defined_ids ),
+			array_map( 'intval', $zone_instance_ids )
+		);
+
+		return empty( $elsewhere ) ? $picked : null;
 	}
 
 	/**
@@ -1366,6 +1402,37 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$instance_ids = $wpdb->get_col(
 			"SELECT instance_id FROM {$wpdb->prefix}woocommerce_shipping_zone_methods WHERE method_id = 'centraldofrete' AND is_enabled = 1"
+		);
+
+		return $instance_ids;
+	}
+
+	/**
+	 * Enabled instances sitting in a shipping zone that has at least one state location.
+	 *
+	 * Same reasoning as `get_enabled_instance_ids()`: reading zone locations through the
+	 * WooCommerce API means instantiating every method of every zone, which is too much for a
+	 * product page. The query takes no user input and the result is reused for the rest of the
+	 * request.
+	 */
+	private static function state_defined_instance_ids(): array {
+		static $instance_ids = null;
+
+		if ( null !== $instance_ids ) {
+			return $instance_ids;
+		}
+
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$instance_ids = $wpdb->get_col(
+			"SELECT DISTINCT methods.instance_id
+			FROM {$wpdb->prefix}woocommerce_shipping_zone_methods AS methods
+			INNER JOIN {$wpdb->prefix}woocommerce_shipping_zone_locations AS locations
+				ON locations.zone_id = methods.zone_id
+			WHERE methods.method_id = 'centraldofrete'
+				AND methods.is_enabled = 1
+				AND locations.location_type = 'state'"
 		);
 
 		return $instance_ids;

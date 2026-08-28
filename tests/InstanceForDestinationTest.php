@@ -45,4 +45,37 @@ class InstanceForDestinationTest extends TestCase {
 	public function test_ids_read_from_the_database_as_strings_are_compared_as_numbers(): void {
 		$this->assertSame( 9, Cdfrete_Shipping_Method::pick_instance( [ '3', '9', '14' ], [ '9' ] ) );
 	}
+
+	/**
+	 * The product page knows a postcode and no state, and WooCommerce matches a state location
+	 * as "<country>:<state>". With the state blank that criterion matches nothing, so a zone
+	 * defined by state is not considered at all and the query falls through to the next zone by
+	 * order. A store with "Brazil : SP" and "Brazil" both carrying the method would have quoted
+	 * every São Paulo postcode from the country wide zone - its token, its fee, its rules -
+	 * while the cart, which knows the state, priced the same basket from the other one.
+	 */
+	public function test_a_zone_defined_by_state_elsewhere_cancels_a_postcode_only_match(): void {
+		$this->assertNull( Cdfrete_Shipping_Method::stateless_pick( 3, [ 3 ], [ 9 ] ) );
+	}
+
+	public function test_a_postcode_only_match_stands_when_no_zone_is_defined_by_state(): void {
+		$this->assertSame( 3, Cdfrete_Shipping_Method::stateless_pick( 3, [ 3 ], [] ) );
+	}
+
+	/**
+	 * A zone that lists a state as well as the location it matched on is the zone the shopper is
+	 * in, not a zone that was skipped, so nothing was missed and its answer stands.
+	 */
+	public function test_a_state_location_in_the_matched_zone_itself_does_not_cancel_it(): void {
+		$this->assertSame( 3, Cdfrete_Shipping_Method::stateless_pick( 3, [ 3 ], [ 3 ] ) );
+	}
+
+	public function test_a_zone_that_matched_nothing_stays_nothing(): void {
+		$this->assertNull( Cdfrete_Shipping_Method::stateless_pick( null, [], [ 9 ] ) );
+	}
+
+	public function test_state_defined_ids_read_from_the_database_as_strings_are_compared_as_numbers(): void {
+		$this->assertSame( 3, Cdfrete_Shipping_Method::stateless_pick( 3, [ 3 ], [ '3' ] ) );
+		$this->assertNull( Cdfrete_Shipping_Method::stateless_pick( 3, [ '3' ], [ '9' ] ) );
+	}
 }
