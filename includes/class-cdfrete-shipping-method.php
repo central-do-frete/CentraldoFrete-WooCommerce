@@ -1270,11 +1270,7 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 			return null;
 		}
 
-		$destination = wp_parse_args( $destination, [
-			'country'  => 'BR',
-			'state'    => '',
-			'postcode' => '',
-		] );
+		$destination = self::destination_for_zone_matching( $destination );
 
 		$zone = WC_Shipping_Zones::get_zone_matching_package( [ 'destination' => $destination ] );
 
@@ -1296,6 +1292,126 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	}
 
 	/**
+	 * The destination as the zone matcher has to receive it, with its state filled in.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. WooCommerce matches a zone defined
+	 * by state on "<country>:<state>", so a destination with a blank state skips every such zone
+	 * and falls through to the next by order without a word - a broader zone with another token,
+	 * another handling fee and another restriction. The postcode is not silent about the state:
+	 * Correios allocates the ranges per federative unit, so the one the shopper just typed is
+	 * derived and matched on, and the product page resolves the zone the checkout will.
+	 *
+	 * This is not the session state CF-387 excluded. That one belongs to whichever address the
+	 * session happens to hold and matches a zone the shopper is not in; this one is the
+	 * destination itself. A state the caller already has is therefore left exactly as it is, and
+	 * outside Brazil nothing is derived, because the ranges mean nothing there.
+	 *
+	 * @param array $destination Package destination: country, state and postcode.
+	 */
+	public static function destination_for_zone_matching( array $destination ): array {
+		$destination = array_merge( [
+			'country'  => 'BR',
+			'state'    => '',
+			'postcode' => '',
+		], $destination );
+
+		$stateless = '' === trim( (string) $destination['state'] );
+		$brazilian = 'BR' === strtoupper( trim( (string) $destination['country'] ) );
+
+		if ( $stateless && $brazilian ) {
+			$derived = self::state_for_postcode( (string) $destination['postcode'] );
+
+			if ( null !== $derived ) {
+				$destination['state'] = $derived;
+			}
+		}
+
+		return $destination;
+	}
+
+	/**
+	 * The federative unit a Brazilian postcode belongs to, or null when no range covers it.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. Null is not a fallback state and no
+	 * range is widened to avoid one: a wrong unit here means a deterministically wrong zone and
+	 * no sign that anything went wrong, which is worse than showing no price. A postcode no
+	 * published range covers leaves the destination stateless, and `stateless_pick()` then
+	 * refuses rather than answer from a zone that only looks like a match.
+	 *
+	 * @param string $postcode Destination postcode, with or without punctuation.
+	 */
+	public static function state_for_postcode( string $postcode ): ?string {
+		$digits = (string) preg_replace( '/\D/', '', $postcode );
+
+		if ( strlen( $digits ) !== 8 ) {
+			return null;
+		}
+
+		$number = (int) $digits;
+
+		foreach ( self::POSTCODE_STATE_RANGES as $range ) {
+			if ( $number >= (int) $range[1] && $number <= (int) $range[2] ) {
+				return $range[0];
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Postcode ranges per federative unit, each with the postcode that verified it.
+	 *
+	 * Ranges as published by Correios, "Faixa de CEP por UF/Localidade":
+	 * https://buscacepinter.correios.com.br/app/faixa_cep_uf_localidade/index.php
+	 * Every row was verified on 2026-08-28 by resolving the probe postcode recorded for it
+	 * through ViaCEP and comparing the federative unit reported; all thirty matched. The probe
+	 * stays next to its range so a later session can re-verify the table without redoing the
+	 * research, and nothing is added here that cannot be cited the same way.
+	 *
+	 * 78900000-78999999 is deliberately absent. It is listed historically for Rondônia, but a
+	 * sweep of the whole range on 2026-08-28 found no allocated postcode answering: it is the
+	 * range from before the renumbering to 768xx, and Rondônia's live range 76800000-76999999
+	 * verified fine. It stays a gap, and a postcode inside it derives nothing.
+	 *
+	 * The bounds are strings so they read as Correios publishes them - written as integers, the
+	 * leading zero would make 01000000 an octal literal.
+	 *
+	 * @var array<int, array{0: string, 1: string, 2: string, 3: string}> Unit, first, last, probe.
+	 */
+	private const POSTCODE_STATE_RANGES = [
+		[ 'SP', '01000000', '19999999', '08599000' ],
+		[ 'RJ', '20000000', '28999999', '26299000' ],
+		[ 'ES', '29000000', '29999999', '29299000' ],
+		[ 'MG', '30000000', '39999999', '39499000' ],
+		[ 'BA', '40000000', '48999999', '40010000' ],
+		[ 'SE', '49000000', '49999999', '49001000' ],
+		[ 'PE', '50000000', '56999999', '50010000' ],
+		[ 'AL', '57000000', '57999999', '57699000' ],
+		[ 'PB', '58000000', '58999999', '58499000' ],
+		[ 'RN', '59000000', '59999999', '59299000' ],
+		[ 'CE', '60000000', '63999999', '62399000' ],
+		[ 'PI', '64000000', '64999999', '64099000' ],
+		[ 'MA', '65000000', '65999999', '65049000' ],
+		[ 'PA', '66000000', '68899999', '68754000' ],
+		[ 'AP', '68900000', '68999999', '68994000' ],
+		[ 'AM', '69000000', '69299999', '69059000' ],
+		[ 'RR', '69300000', '69399999', '69319000' ],
+		[ 'AM', '69400000', '69899999', '69424000' ],
+		[ 'AC', '69900000', '69999999', '69919000' ],
+		[ 'DF', '70000000', '72799999', '71959000' ],
+		[ 'GO', '72800000', '72999999', '72899000' ],
+		[ 'DF', '73000000', '73699999', '73006000' ],
+		[ 'GO', '73700000', '76799999', '75714000' ],
+		[ 'RO', '76800000', '76999999', '76839000' ],
+		[ 'TO', '77000000', '77999999', '77449000' ],
+		[ 'MT', '78000000', '78899999', '78449000' ],
+		[ 'MS', '79000000', '79999999', '79949000' ],
+		[ 'PR', '80000000', '87999999', '80010000' ],
+		[ 'SC', '88000000', '89999999', '89899000' ],
+		[ 'RS', '90000000', '99999999', '96999000' ],
+	];
+
+	/**
 	 * Whether a zone matched without a state is the zone the destination really falls into.
 	 *
 	 * Kept free of WordPress so it can be tested on its own. WooCommerce matches a state
@@ -1305,6 +1421,10 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 * token, another fee and another restriction. Nothing distinguishes that from a real match,
 	 * so while a zone defined by state carries the method anywhere else, the match does not
 	 * stand and the postcode gets no price instead of another region's.
+	 *
+	 * This is the exception now rather than the rule: `state_for_postcode()` fills the state in
+	 * before the zone is matched, so a destination arrives here stateless only when no published
+	 * range covers its postcode, or when the caller passed neither state nor a Brazilian country.
 	 *
 	 * @param int|null $picked            Instance the matched zone points at, null when none did.
 	 * @param int[]    $zone_instance_ids Ids this method has in the matched zone.

@@ -44,10 +44,20 @@ calculator renders when any zone offers it, and then the zone the shopper's post
 decides whether it answers. Anything keyed per account (cached prices, the resolved origin map)
 is likewise keyed by `Cdfrete_API_Client::account_scope()`, never by a single store-wide value.
 
-Every sentence a shopper reads instead of a price leaves through
+Every sentence telling a shopper this store will not price their postcode leaves through
 `Cdfrete_Frontend_Calculator::refuse()`, and it takes a coverage verdict with no default:
 a message about the region is only released to a caller that read the setting withholding the
-quote. Write new refusals there rather than in the AJAX handler.
+quote. Write new refusals there rather than in the AJAX handler. The handler still answers a
+postcode that is not eight digits, a product that does not exist and a failed request directly,
+because those state what happened and say nothing about what the store serves - do not read the
+single site as a sweep of every `wp_send_json_error` in the file.
+
+The zone a destination falls into is matched with a state, and a stateless destination silently
+falls through to the next zone by order. `Cdfrete_Shipping_Method::state_for_postcode()` derives
+it from the postcode itself, so the calculator resolves the same zone the checkout will. Its
+range table is cited and probe-verified in the docblock: extend it only the same way, because a
+wrong entry is a wrong zone with nothing to show for it, and an uncovered postcode already falls
+back to `stateless_pick()` refusing.
 
 ## Maintaining this file
 

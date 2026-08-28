@@ -14,7 +14,8 @@ class RefusalTest extends TestCase {
 
 	/**
 	 * The two switches the merchant turned off, and the class restriction of the zone that
-	 * answers, are settings the plugin read. Everything else is a guess.
+	 * answers, are settings the plugin read. Everything else is a guess - including a list the
+	 * merchant's own filter emptied, where carriers did quote and the plugin hid them.
 	 */
 	private const CHECKED = [
 		Cdfrete_Frontend_Calculator::QUOTE_METHOD_OFF      => Cdfrete_Frontend_Calculator::COVERAGE_RULED_OUT,
@@ -23,6 +24,7 @@ class RefusalTest extends TestCase {
 		Cdfrete_Frontend_Calculator::QUOTE_NO_ZONE         => Cdfrete_Frontend_Calculator::COVERAGE_UNKNOWN,
 		Cdfrete_Frontend_Calculator::QUOTE_NEVER_SAVED     => Cdfrete_Frontend_Calculator::COVERAGE_UNKNOWN,
 		Cdfrete_Frontend_Calculator::QUOTE_NO_TOKEN        => Cdfrete_Frontend_Calculator::COVERAGE_UNKNOWN,
+		Cdfrete_Frontend_Calculator::REFUSE_ALL_FILTERED   => Cdfrete_Frontend_Calculator::COVERAGE_UNKNOWN,
 	];
 
 	/**
@@ -110,6 +112,41 @@ class RefusalTest extends TestCase {
 
 		$this->assertNotFalse( stripos( $answer['message'], 'região' ), 'the refusal must be scoped to the region' );
 		$this->assertTrue( $answer['notice'], 'a product other zones quote is not an error' );
+	}
+
+	/**
+	 * "Esconder fretes Balcão" can empty a list every carrier answered: the plugin watched them
+	 * price that exact postcode and removed them itself, so it is in no position to say there is
+	 * no freight for it - the sentence that ends the visit for a product the store does ship.
+	 */
+	public function test_options_the_merchants_filter_removed_are_not_reported_as_no_freight(): void {
+		$answer = Cdfrete_Frontend_Calculator::refuse(
+			Cdfrete_Frontend_Calculator::REFUSE_ALL_FILTERED,
+			Cdfrete_Frontend_Calculator::COVERAGE_UNKNOWN
+		);
+
+		$this->assertTrue( $answer['notice'], 'nothing failed, so it must not be shown as an error' );
+
+		foreach ( [ 'nenhuma opção', 'não há opç', 'indisponível', 'não disponível' ] as $claim ) {
+			$this->assertFalse(
+				stripos( $answer['message'], $claim ),
+				'a hidden option is not an absent one: ' . $claim
+			);
+		}
+	}
+
+	/**
+	 * It is not a coverage fact either. A caller claiming it read a setting that rules the region
+	 * out gets the sentence that claims nothing, like every other unverified refusal.
+	 */
+	public function test_a_filtered_list_may_not_be_dressed_up_as_a_region_the_merchant_ruled_out(): void {
+		$this->assertSame(
+			self::neutral_answer(),
+			Cdfrete_Frontend_Calculator::refuse(
+				Cdfrete_Frontend_Calculator::REFUSE_ALL_FILTERED,
+				Cdfrete_Frontend_Calculator::COVERAGE_RULED_OUT
+			)
+		);
 	}
 
 	/**

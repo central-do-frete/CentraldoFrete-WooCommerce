@@ -78,4 +78,70 @@ class InstanceForDestinationTest extends TestCase {
 		$this->assertSame( 3, Cdfrete_Shipping_Method::stateless_pick( 3, [ 3 ], [ '3' ] ) );
 		$this->assertNull( Cdfrete_Shipping_Method::stateless_pick( 3, [ '3' ], [ '9' ] ) );
 	}
+
+	/**
+	 * Refusing was the safe answer, not the right one. The state the zone matcher needs is in the
+	 * postcode the shopper typed, so it is filled in before the match and the zone defined by
+	 * state becomes eligible instead of being skipped - the same zone the checkout will use.
+	 */
+	public function test_the_state_of_the_typed_postcode_is_filled_in_before_the_zone_is_matched(): void {
+		$destination = Cdfrete_Shipping_Method::destination_for_zone_matching( [
+			'country'  => 'BR',
+			'state'    => '',
+			'postcode' => '01310100',
+		] );
+
+		$this->assertSame( 'SP', $destination['state'] );
+		$this->assertSame( '01310100', $destination['postcode'] );
+		$this->assertSame( 'BR', $destination['country'] );
+	}
+
+	/**
+	 * The cart and the checkout know the state from the address the shopper is buying to, which
+	 * is the fact itself rather than a derivation of it, and it stays untouched.
+	 */
+	public function test_a_state_the_caller_already_has_is_left_alone(): void {
+		$destination = Cdfrete_Shipping_Method::destination_for_zone_matching( [
+			'country'  => 'BR',
+			'state'    => 'RJ',
+			'postcode' => '01310100',
+		] );
+
+		$this->assertSame( 'RJ', $destination['state'] );
+	}
+
+	/** These ranges are Correios' allocation and say nothing about any other country. */
+	public function test_nothing_is_derived_outside_brazil(): void {
+		$destination = Cdfrete_Shipping_Method::destination_for_zone_matching( [
+			'country'  => 'PT',
+			'state'    => '',
+			'postcode' => '01310100',
+		] );
+
+		$this->assertSame( '', $destination['state'] );
+		$this->assertSame( 'PT', $destination['country'] );
+	}
+
+	/**
+	 * A postcode no published range covers derives nothing rather than a neighbour's state, so
+	 * the destination stays stateless and `stateless_pick()` decides - which is the refusal that
+	 * used to be the rule and is now the exception.
+	 */
+	public function test_a_postcode_outside_every_published_range_leaves_the_destination_stateless(): void {
+		$destination = Cdfrete_Shipping_Method::destination_for_zone_matching( [
+			'country'  => 'BR',
+			'state'    => '',
+			'postcode' => '78950000',
+		] );
+
+		$this->assertSame( '', $destination['state'] );
+	}
+
+	/** A caller that supplies only a postcode still gets a destination the matcher can read. */
+	public function test_the_country_and_state_keys_are_always_present(): void {
+		$destination = Cdfrete_Shipping_Method::destination_for_zone_matching( [ 'postcode' => '90000000' ] );
+
+		$this->assertSame( 'BR', $destination['country'] );
+		$this->assertSame( 'RS', $destination['state'] );
+	}
 }

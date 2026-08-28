@@ -16,6 +16,9 @@ class Cdfrete_Frontend_Calculator {
 	/** A refusal that is not about the zone: the zone quotes, but not this product's class. */
 	public const REFUSE_CLASS_EXCLUDED = 'class_excluded';
 
+	/** Nor this one: carriers priced the postcode and the zone's own filters hid every one. */
+	public const REFUSE_ALL_FILTERED   = 'all_filtered';
+
 	/** Whether the plugin read a setting that withholds the quote here, or does not know. */
 	public const COVERAGE_RULED_OUT = 'ruled_out';
 	public const COVERAGE_UNKNOWN   = 'unknown';
@@ -121,8 +124,11 @@ class Cdfrete_Frontend_Calculator {
 
 		// The postcode the shopper typed is the destination, so it is also what decides which
 		// shipping zone - and therefore which token, fee, class restriction and display rules -
-		// govern this quote. The state is deliberately left out: the session may hold one from
-		// another address, and a wrong state matches a wrong zone.
+		// govern this quote. The state is deliberately not read from the session: the session may
+		// hold one from another address, and a wrong state matches a wrong zone. It is left blank
+		// here and derived from this postcode by `Cdfrete_Shipping_Method::state_for_postcode()`
+		// before the zone is matched, which is the state of the destination itself rather than of
+		// some address it happened to be typed next to.
 		$resolved = Cdfrete_Shipping_Method::resolve_for_destination( [
 			'country'  => 'BR',
 			'state'    => '',
@@ -281,9 +287,17 @@ class Cdfrete_Frontend_Calculator {
 			count( $services )
 		) );
 
+		// Carriers priced this postcode and the merchant's own filter removed all of them, so the
+		// one thing the plugin may not say here is that there is no freight for it.
 		if ( empty( $services ) ) {
-			Cdfrete_API_Client::log( 'warning', '[CALC] Todas as opções filtradas' );
-			wp_send_json_error( [ 'message' => __( 'Nenhuma opção de frete disponível para este CEP.', 'central-do-frete' ) ] );
+			Cdfrete_API_Client::log( 'warning', sprintf(
+				'[CALC] Todas as %d opções retornadas para o CEP %s foram filtradas na área de entrega #%d',
+				$original_count,
+				$postcode,
+				(int) $resolved['instance_id']
+			) );
+
+			wp_send_json_error( self::refuse( self::REFUSE_ALL_FILTERED, self::COVERAGE_UNKNOWN ) );
 		}
 
 		$additional_time   = (int) ( $settings['additional_time'] ?? 0 );
@@ -377,7 +391,12 @@ class Cdfrete_Frontend_Calculator {
 	}
 
 	/**
-	 * The one place a shopper is told there is no price.
+	 * The one place a shopper is told this store will not price their postcode.
+	 *
+	 * Not every answer without a price comes through here, and none of the others should: a
+	 * postcode that is not eight digits, a product that does not exist and a request the service
+	 * failed are all reported straight from the handler, because each states what really
+	 * happened and none of them is about what the store serves.
 	 *
 	 * The coverage verdict is a required argument with no default because refusals written here
 	 * kept asserting what nobody had checked: one of them told shoppers the store does not quote
@@ -388,7 +407,7 @@ class Cdfrete_Frontend_Calculator {
 	 * error either.
 	 *
 	 * @param string $cause    Why there is no price: a QUOTE_ constant other than QUOTE_READY,
-	 *                         or REFUSE_CLASS_EXCLUDED.
+	 *                         or one of the REFUSE_ constants.
 	 * @param string $coverage COVERAGE_RULED_OUT only when the plugin read the setting that
 	 *                         withholds the quote in this region, COVERAGE_UNKNOWN otherwise.
 	 */
@@ -417,7 +436,9 @@ class Cdfrete_Frontend_Calculator {
 	 * does not suggest trying again - the next attempt fails the same way until the merchant
 	 * finishes the zone. A postcode no zone matched says only that, because a store defining its
 	 * zones by state does serve those postcodes and the calculator cannot tell which zone they
-	 * belong to.
+	 * belong to. Options the zone's filters removed are the plainest case of all: the plugin
+	 * watched carriers price that postcode and hid them itself, so it says the store is not
+	 * showing them rather than that there are none.
 	 */
 	private static function refusals(): array {
 		$unfinished = __( 'Não conseguimos calcular o frete para este CEP nesta página. Entre em contato com a loja para saber as opções de entrega.', 'central-do-frete' );
@@ -435,6 +456,10 @@ class Cdfrete_Frontend_Calculator {
 			self::REFUSE_CLASS_EXCLUDED => [
 				'coverage' => self::COVERAGE_RULED_OUT,
 				'message'  => __( 'Este produto não é cotado pela Central do Frete na região deste CEP. Entre em contato com a loja para saber as opções de entrega.', 'central-do-frete' ),
+			],
+			self::REFUSE_ALL_FILTERED => [
+				'coverage' => self::COVERAGE_UNKNOWN,
+				'message'  => __( 'Não estamos exibindo opções de frete para este CEP. Entre em contato com a loja para saber as opções de entrega.', 'central-do-frete' ),
 			],
 			self::QUOTE_NO_ZONE => [
 				'coverage' => self::COVERAGE_UNKNOWN,
@@ -473,7 +498,10 @@ class Cdfrete_Frontend_Calculator {
 	 *
 	 * Kept free of WordPress so it can be tested on its own. This is where the difference the
 	 * shopper is spared is written down, in the merchant's own terms and against the instance
-	 * it belongs to, so an unfinished zone can be found and finished.
+	 * it belongs to, so an unfinished zone can be found and finished. A state nobody registered
+	 * here names itself instead of borrowing the line of the last case, the same way `refuse()`
+	 * falls back to the sentence that claims nothing: a merchant sent to fix a token that is
+	 * already there loses more time than one told the plugin reached a state it cannot describe.
 	 *
 	 * @param string   $state       One of the QUOTE_ constants, other than QUOTE_READY.
 	 * @param int|null $instance_id Instance the destination resolved to, null when none did.
@@ -522,11 +550,22 @@ class Cdfrete_Frontend_Calculator {
 					),
 				];
 
-			default:
+			case self::QUOTE_NO_TOKEN:
 				return [
 					'level'   => 'error',
 					'message' => sprintf(
 						'[CALC] Token não configurado na área de entrega #%d, que atende o CEP %s',
+						(int) $instance_id,
+						$postcode
+					),
+				];
+
+			default:
+				return [
+					'level'   => 'warning',
+					'message' => sprintf(
+						'[CALC] Estado de cotação não reconhecido "%s" na área de entrega #%d, que atende o CEP %s',
+						$state,
 						(int) $instance_id,
 						$postcode
 					),

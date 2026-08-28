@@ -156,6 +156,22 @@ class QuoteStateTest extends TestCase {
 	}
 
 	/**
+	 * The states are read one by one, so a sixth one added later without a line of its own used
+	 * to inherit whichever branch sat in the default. That branch was the missing token, at the
+	 * level of a fault: the merchant would be sent to a settings screen to fix a token that is
+	 * already there. An unrecognised state names itself instead, the way `refuse()` falls back to
+	 * the sentence that claims nothing.
+	 */
+	public function test_a_state_with_no_line_of_its_own_is_not_reported_as_a_missing_token(): void {
+		$log = Cdfrete_Frontend_Calculator::quote_state_log( 'a_state_added_after_this_test', 7, '30240440' );
+
+		$this->assertStringNotContainsString( 'Token não configurado', $log['message'] );
+		$this->assertStringContainsString( 'a_state_added_after_this_test', $log['message'] );
+		$this->assertStringContainsString( '30240440', $log['message'] );
+		$this->assertNotSame( 'error', $log['level'] );
+	}
+
+	/**
 	 * @return string[]
 	 */
 	private static function states_without_a_quote(): array {
