@@ -1222,8 +1222,13 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 *
 	 * A store can add the method to several shipping zones, each with its own token, handling
 	 * fee and display rules, so "the settings" only mean something next to a destination. The
-	 * zone comes from WooCommerce's own matcher; when the destination does not resolve to a
-	 * zone that offers this method, no settings are returned rather than another zone's.
+	 * zone comes from WooCommerce's own matcher, and no settings are returned rather than
+	 * another zone's.
+	 *
+	 * "Offers this method" here means the zone method row is enabled, which is the zone screen
+	 * toggle. It is not the same as the instance's own "Ativar método de entrega" checkbox:
+	 * that one lives in the settings and is read by `is_available()`, so a zone can be matched
+	 * here while the cart and the checkout offer nothing for it.
 	 *
 	 * @param array $destination Package destination: country, state and postcode.
 	 */

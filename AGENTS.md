@@ -37,6 +37,8 @@ A store can add the method to several shipping zones, each with its own token an
 settings only mean something next to a destination. Read them with
 `Cdfrete_Shipping_Method::get_settings_for_destination()`, or `get_all_settings()` where there is
 genuinely no destination. Never pick an instance yourself.
+Use `resolve_for_destination()` instead wherever "no zone matched" and "a zone matched but was
+never saved" have to be told apart: the settings-only accessor returns an empty array for both.
 A per-zone setting governs what that zone does, not just what the store draws: the product page
 calculator renders when any zone offers it, and then the zone the shopper's postcode falls into
 decides whether it answers. Anything keyed per account (cached prices, the resolved origin map)
