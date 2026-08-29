@@ -851,6 +851,7 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 			$to,
 			$volumes,
 			$cargo_types,
+			$invoice,
 			$recipient
 		);
 		$cached    = Cdfrete_Cache::get( $cache_key );
@@ -1246,6 +1247,11 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 * it is added to a zone but stores no settings until the merchant saves the form, so a zone
 	 * that answers can answer with nothing. The instance id says which of the two happened.
 	 *
+	 * This resolves for the product page, its only caller, and that shows where one zone holds
+	 * the method twice: the entry preferred there is one that will answer the product page, so
+	 * an entry with the calculator switched off is passed over for a sibling without it.
+	 * Anything else that needs an instance per destination has its own preference to state.
+	 *
 	 * @param array $destination Package destination: country, state and postcode.
 	 *
 	 * @return array{instance_id: int|null, settings: array}
@@ -1459,7 +1465,7 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 *
 	 * @param int[] $enabled_ids       Ids of every enabled instance, store wide.
 	 * @param int[] $zone_instance_ids Ids this method has in the matched zone.
-	 * @param int[] $quotable_ids      Of those, the ones that could actually return a price.
+	 * @param int[] $quotable_ids      Of those, the ones that could actually answer the caller.
 	 */
 	public static function pick_instance( array $enabled_ids, array $zone_instance_ids, array $quotable_ids = [] ): ?int {
 		$enabled    = array_values( array_unique( array_map( 'intval', $enabled_ids ) ) );
@@ -1475,41 +1481,66 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	}
 
 	/**
-	 * Which of these instances could actually return a price.
+	 * Which of these instances could actually answer the product page.
 	 *
-	 * Saved, switched on and holding a token is what separates an entry the merchant decided on
-	 * from one they abandoned: WooCommerce enables a zone method the moment it is added and
-	 * stores no settings until the form is saved, so an abandoned entry sits there enabled and
-	 * empty. Two shipping zones with different settings are two decisions to respect, but one
-	 * zone holding two entries where only one was ever configured is a single decision plus a
+	 * Two shipping zones with different settings are two decisions to respect, but one zone
+	 * holding two entries where only one was ever configured is a single decision plus a
 	 * leftover, and refusing on account of the leftover would tell the shopper their region
 	 * cannot be quoted while the sibling entry quotes that region.
 	 *
-	 * The calculator switch is deliberately not part of this: a zone with the calculator turned
-	 * off is a decision, and this asks which entries carry one at all.
+	 * The product page calculator switch counts here, and why it once looked as though it
+	 * should not is worth writing down, because unifying the two readings of it will look like a
+	 * simplification. This asks which of a zone's entries answers when the zone holds more than
+	 * one; `Cdfrete_Frontend_Calculator::quote_state()` asks whether the entry that answered
+	 * will quote at all. Leave the switch out of this one and a leftover entry with it off
+	 * speaks for a zone whose sibling has it on, telling the shopper their region gets no
+	 * calculation while the cart quotes them from that sibling. Have `quote_state()` trust this
+	 * list instead of reading the settings itself and a zone the merchant switched off starts
+	 * answering. A zone whose only entry has the switch off keeps refusing either way: nothing
+	 * quotable falls back to the lowest id, and `quote_state()` reads that entry's own settings.
 	 *
 	 * @param int[] $instance_ids Instances to test.
 	 *
-	 * @return int[] Those that could quote.
+	 * @return int[] Those that could answer.
 	 */
 	private static function quotable_instance_ids( array $instance_ids ): array {
 		$quotable = [];
 
 		foreach ( $instance_ids as $instance_id ) {
-			$settings = self::get_instance_settings( (int) $instance_id );
-
-			if ( empty( $settings ) || empty( $settings['token'] ) ) {
-				continue;
+			if ( self::instance_can_answer_the_product_page( self::get_instance_settings( (int) $instance_id ) ) ) {
+				$quotable[] = (int) $instance_id;
 			}
-
-			if ( ! Cdfrete_Frontend_Calculator::method_is_enabled( $settings ) ) {
-				continue;
-			}
-
-			$quotable[] = (int) $instance_id;
 		}
 
 		return $quotable;
+	}
+
+	/**
+	 * Whether one instance is a finished decision to price the product page.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. Saved and holding a token is what
+	 * separates an entry the merchant decided on from one they abandoned: WooCommerce enables a
+	 * zone method the moment it is added and stores no settings until the form is saved, so an
+	 * abandoned entry sits there enabled and empty. Both switches then have to be on, because
+	 * an entry that will not answer is not a candidate to answer. Absent counts as on for both,
+	 * which is how a zone saved before the fields existed keeps quoting.
+	 *
+	 * This is the product page's question, and the cart's is not the same one: the cart reads
+	 * its own instance through `is_available()` and the calculator switch is none of its
+	 * business. Do not reuse this for it.
+	 *
+	 * @param array $settings Settings of a single instance, empty when it has none stored.
+	 */
+	public static function instance_can_answer_the_product_page( array $settings ): bool {
+		if ( empty( $settings ) || empty( $settings['token'] ) ) {
+			return false;
+		}
+
+		if ( ! Cdfrete_Frontend_Calculator::method_is_enabled( $settings ) ) {
+			return false;
+		}
+
+		return Cdfrete_Frontend_Calculator::calculator_is_offered( $settings );
 	}
 
 	/**

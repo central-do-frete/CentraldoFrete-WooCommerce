@@ -28,6 +28,48 @@ class InstanceForDestinationTest extends TestCase {
 		$this->assertSame( 14, Cdfrete_Shipping_Method::pick_instance( [ 9, 14 ], [ 9, 14 ], [ 14 ] ) );
 	}
 
+	/**
+	 * The same zone, two entries, the older one with the product page calculator switched off.
+	 * That entry is a leftover standing in front of a sibling that answers, so it does not get
+	 * to speak for the zone and tell the shopper their region gets no calculation while the
+	 * cart prices that same basket from the sibling.
+	 */
+	public function test_an_entry_with_the_calculator_off_does_not_speak_for_a_zone_whose_sibling_answers(): void {
+		$leftover = [ 'token' => 'abc', 'enabled' => 'yes', 'product_calculator' => 'no' ];
+		$answers  = [ 'token' => 'abc', 'enabled' => 'yes', 'product_calculator' => 'yes' ];
+
+		$this->assertFalse( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( $leftover ) );
+		$this->assertTrue( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( $answers ) );
+
+		$this->assertSame( 11, Cdfrete_Shipping_Method::pick_instance( [ 6, 11 ], [ 6, 11 ], [ 11 ] ) );
+	}
+
+	/**
+	 * The other half of that, and the one narrowing quotability must not break: a zone whose
+	 * only entry has the calculator off is a decision, not a leftover, and still refuses. With
+	 * nothing quotable the lowest id answers, and the state is read from that entry's settings.
+	 */
+	public function test_a_zone_whose_only_entry_has_the_calculator_off_still_refuses(): void {
+		$off = [ 'token' => 'abc', 'enabled' => 'yes', 'product_calculator' => 'no' ];
+
+		$this->assertSame( 6, Cdfrete_Shipping_Method::pick_instance( [ 6 ], [ 6 ], [] ) );
+		$this->assertSame(
+			Cdfrete_Frontend_Calculator::QUOTE_CALCULATOR_OFF,
+			Cdfrete_Frontend_Calculator::quote_state( 6, $off )
+		);
+	}
+
+	/**
+	 * The rest of what makes an entry a candidate. Both switches default to on, so a zone saved
+	 * before either field existed is still the entry that answers for its zone.
+	 */
+	public function test_an_unfinished_or_switched_off_entry_is_not_a_candidate(): void {
+		$this->assertFalse( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [] ) );
+		$this->assertFalse( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [ 'enabled' => 'yes' ] ) );
+		$this->assertFalse( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [ 'token' => 'abc', 'enabled' => 'no' ] ) );
+		$this->assertTrue( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [ 'token' => 'abc' ] ) );
+	}
+
 	public function test_the_lowest_id_still_wins_among_instances_that_can_all_quote(): void {
 		$this->assertSame( 9, Cdfrete_Shipping_Method::pick_instance( [ 9, 14 ], [ 9, 14 ], [ 9, 14 ] ) );
 	}

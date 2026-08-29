@@ -214,7 +214,8 @@ class Cdfrete_Frontend_Calculator {
 			$from,
 			$postcode,
 			$volumes,
-			$cargo_types
+			$cargo_types,
+			$invoice
 		);
 		$services  = Cdfrete_Cache::get( $cache_key );
 
