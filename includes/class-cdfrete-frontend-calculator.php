@@ -576,7 +576,7 @@ class Cdfrete_Frontend_Calculator {
 	/**
 	 * The product page has no destination yet, so the calculator shows up when any enabled
 	 * instance is configured to offer it. Which zone answers is decided once the shopper types
-	 * a postcode, and that zone's own switches decide whether it answers at all.
+	 * a postcode, and that zone's own switch decides whether it answers at all.
 	 *
 	 * "Configured to offer it" is the same question the resolution asks of one instance, so it
 	 * is asked through the same predicate rather than spelled out again here. Two places reading
