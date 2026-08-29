@@ -4,7 +4,7 @@ Tags: shipping, freight, carriers, brazil, woocommerce
 Requires at least: 5.6
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.1.1
+Stable tag: 3.3.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -36,7 +36,7 @@ This plugin depends on the Central do Frete service and sends data to the API at
 
 Data sent on each quote:
 
-* Origin postcode (the store postcode) and the destination postcode entered by the shopper
+* The destination postcode entered by the shopper, and the store postcode as the origin. A store with no usable postcode of its own - missing, or not 8 numbers - sends no origin, and the quote then leaves from the pickup address registered in your Central do Frete account
 * Weight, height, width, length and quantity of the cart volumes
 * Total value of the products, used as the invoice amount
 * Cargo type configured on the products
@@ -66,7 +66,7 @@ Yes. The plugin is the interface to your account inside WooCommerce. Without the
 
 = What does Central do Frete do that a carrier plugin does not? =
 
-We choose which carriers you get to compare, and we keep following the shipment. Carriers are selected on measured performance and reviewed every quarter on delivery time, damage rate and support - not on who pays to appear. When a shipment goes wrong, chasing the carrier is our job, not yours.
+We choose which carriers you get to compare, and we keep following the shipment. Carriers are selected on measured performance and reviewed every quarter on delivery time, damage rate and support. When a shipment goes wrong, chasing the carrier is our job, not yours.
 
 = Does the plugin charge anything? =
 
@@ -86,7 +86,7 @@ Yes. The `woocommerce_shipping_centraldofrete_is_available` filter receives the 
 
 = Quotes are wrong or do not show up =
 
-Turn on **Modo debug** in the method settings and check the logs under **WooCommerce › Status › Logs**, in the `central-do-frete-*` file. The most common causes are a missing store postcode, products without weight and dimensions, and an invalid token.
+Turn on **Modo debug** in the method settings and check the logs under **WooCommerce › Status › Logs**, in the `central-do-frete-*` file. The most common causes are products without weight and dimensions, an invalid token, and an origin that is not where the freight actually leaves from - the method settings screen states which postcode the quotes are using.
 
 == Screenshots ==
 
@@ -96,6 +96,30 @@ Turn on **Modo debug** in the method settings and check the logs under **WooComm
 4. Shipping calculator on the product page, so the shopper checks the freight before adding the item to the cart.
 
 == Changelog ==
+
+= 3.3.0 =
+* **The product page calculator setting changed meaning: it now decides whether that zone answers, not only whether the field is drawn.** A shopper whose postcode fell into a zone with the calculator turned off still got prices from that zone, because the switch was read once for the whole store. Each zone's switch now governs its own answers, and a shopper in a region you turned it off for is told the calculation is not available there. Turned on in every zone, which is the default, nothing changes
+* A store postcode that is filled in but is not 8 numbers no longer breaks every quote. It is treated as no postcode at all, so the quote leaves from the pickup address registered in your account, and the method settings screen says the store postcode is invalid - a separate warning from the one for a store address that was never filled in, because the fix is different
+* Stores that use Central do Frete in more than one shipping zone with different tokens now see the right pickup postcode on each zone's settings screen. The plugin kept only the last one resolved, so two zones overwrote each other and the screen named whichever account had quoted most recently
+* A shipping zone you added Central do Frete to but never pasted a token into now says so on its settings screen, and names the zone. It looked finished - WooCommerce enables the method as soon as you add it, and the cargo type list is shared by the whole store - while quoting nothing
+* The **Ativar método de entrega** checkbox was removed from the method settings, because it had no effect. Unchecking it changed nothing in the cart, in the checkout or on the product page: WooCommerce replaces what that box stored with the on/off switch shown next to the method on the **shipping zones** screen, and that switch is the one that turns Central do Frete off for a zone. If you had unchecked the box, the value stays in your settings and is not read, so nothing about your store changes
+* A store that uses Central do Frete in more than one shipping zone and defines any of them by state now gets the right zone's prices on the product page. The calculator is given a postcode and no state, and a shipping zone defined by state cannot be matched without one, so the quote used to fall through to whatever broader zone came next and answer with its token, its handling fee and its display rules - a different price from the one the cart showed for the same basket. The state is now worked out from the postcode itself, from the ranges Correios publishes per state, so the product page matches the same shipping zone the cart and the checkout match
+* **Because of the change above, quotes on your product pages can change in a store where you touched nothing.** A shipping zone defined by state that sits above a broader one now wins for the postcodes in it, where the broader zone used to answer: that is the zone you set up answering for the first time on the product page, with the token, handling fee and display rules you gave it, and it is the same zone the cart has always used. If a state zone of yours is configured differently from the country wide one, that is where the difference will show
+* A postcode no published range covers leaves the state blank rather than guessed, and falls back to what this release already does without one: if a shipping zone that carries Central do Frete is defined by state, the product page shows no price and says the delivery area could not be identified, instead of answering from a zone that may only look like a match. A zone defined by state that carries other methods and not this one does not cause that, and such a postcode still gets a price. One range sits there today - 78900000-78999999, listed for Rondônia before the renumbering to 768xx, where nothing is allocated. A guessed state would be a wrong zone quoting with nothing on screen to say so, which is worse than no price
+* **The product page now answers only for a postcode that falls inside a shipping zone carrying Central do Frete, whether you use one zone or several, and this too changes quotes in a store where you touched nothing.** In a store with the method in a single zone the calculator skipped the zone match altogether and answered from that zone for every postcode, including postcodes the zone does not cover - the cart and the checkout offered those shoppers nothing while the product page priced them. They now read that the delivery area could not be identified, which is what the cart has always told them. If your single zone covers one state or a range of postcodes rather than the whole country, that is where your product page stops quoting
+* When **Esconder fretes Balcão** removes every option the carriers returned, the product page no longer tells the shopper there is no freight for that postcode. Carriers did quote it and the plugin hid them, so it now says the store is not showing options for that CEP and points to you, as a note rather than an error
+* A product whose shipping class one zone does not carry no longer reads as if the whole store refused to quote it. The message named no region and arrived as an error, so a shopper in a zone that excludes that class was told the product is not quoted by Central do Frete at all - and left, while every other zone was quoting it. It now says the product is not quoted in the region of that postcode, as a note, and points to the store
+* The product page calculator now tells a shopper four different things instead of one when the shipping zone their postcode falls into cannot quote it, each true of their own case: the calculation is not available for that region, when you switched the product page calculator off in the zone that covers it; that we could not calculate the freight for that postcode and to contact the store, when the zone that covers it has no token or was added and never saved; that the delivery area could not be identified, when no zone matched it; and that the product is not quoted in that region, when the zone that covers it does not carry the product's shipping class. None of the four is shown as an error, and none of them tells a shopper you do not deliver to their postcode
+* Shoppers no longer read "Não atendemos este CEP" for a postcode you do deliver to. A zone added and never saved was reaching them with that sentence, and so was a store that defines its zones by state. This changes what the 3.2.0 upgrade notice told you about zones defined by state: the calculator now identifies the zone from the postcode itself, and the delivery-area sentence is left for a postcode no zone matches or no published range covers. The cart and the checkout are unaffected, as they were then
+* Cached quotes are now told apart by the declared value of the goods as well. Two quotes that differed only in price shared one cache entry, and a store whose products have no weight or measurements gives every one of them the same default volume - so one product's freight was served for another, reported as a cache hit. Stores like that will see more calls to the service, which is what the right number costs
+
+= 3.2.0 =
+* A store with no postcode of its own now gets quotes: the request goes out with no origin and Central do Frete uses the pickup address registered in your account. Until now the plugin gave up and offered no freight at all
+* The method settings screen states which postcode the quotes leave from, and says so as a warning when that is the account's pickup address instead of the store address, because a different origin changes both the price and the list of carriers
+* Stores that use Central do Frete in more than one shipping zone no longer read another zone's settings: the product page calculator answers with the zone the shopper's postcode falls into, and applies that zone's shipping class restriction
+* Debug mode now writes logs whenever any shipping zone has it turned on, instead of depending on which zone the database returned first
+* Cached quotes are now separated per Central do Frete account, so two shipping zones with different tokens cannot read each other's prices. Every cached quote is discarded once on update
+* `Cdfrete_Shipping_Method::get_settings()` was removed. It answered with an arbitrary shipping zone; use `get_settings_for_destination()`, `get_instance_settings()` or `get_all_settings()`
 
 = 3.1.1 =
 * The cargo type button on the settings screen now loads its script through the WordPress script queue instead of printing it inline
@@ -128,6 +152,12 @@ Turn on **Modo debug** in the method settings and check the logs under **WooComm
 * Previous version
 
 == Upgrade Notice ==
+
+= 3.3.0 =
+Quotes can change on your product pages in a store where you touched nothing: the page now answers only for a postcode inside a shipping zone carrying Central do Frete, one zone or several, and a zone defined by state now wins over the broader zone below it. Each zone's own switch decides whether it answers there. See the changelog.
+
+= 3.2.0 =
+If your store has no postcode set, Central do Frete now quotes from the pickup address registered in your account instead of offering no freight. Open the method settings: the screen states which postcode is in use. Cached quotes are cleared once. On a store that uses the method in more than one shipping zone and defines those zones by state, the product page calculator may answer that it does not serve a postcode; the cart and the checkout are unaffected.
 
 = 3.1.1 =
 Safe to update: your settings, shipping zones, product cargo types and existing orders are unchanged. Only if you wrote custom CSS for the product page calculator: its class names changed from cdf- to cdfrete- (for example .cdf-rates-table is now .cdfrete-rates-table).

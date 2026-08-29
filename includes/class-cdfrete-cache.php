@@ -11,18 +11,37 @@ class Cdfrete_Cache {
 	 * Cache version - increment this when data structure changes.
 	 * This ensures old cached data without new fields (like carrier_logo) is invalidated.
 	 */
-	private const VERSION = 2;
+	private const VERSION = 3;
 
 	/**
 	 * Generate a cache key from shipping parameters.
+	 *
+	 * The key has to separate everything the quotation request carries, because a hit answers
+	 * without asking: a field that reaches the service but not the key is a field whose value
+	 * is settled by whoever quoted first, and the log reports a HIT with nothing to say about
+	 * it. Two fields had drifted out of it, which is a pattern rather than bad luck. The
+	 * account behind the token went in this release, after two shipping zones with different
+	 * tokens were found sharing prices. The invoice amount went in straight after: it has been
+	 * in `Cdfrete_API_Client::build_quotation_payload()` from the start, and a store whose
+	 * products carry no weight or dimensions gives every one of them the same default volume,
+	 * so a R$ 5.000 product and a R$ 50 one differed in nothing the key held and read each
+	 * other's freight. Whoever adds a field to that payload adds it here in the same change.
+	 *
+	 * `$account` is `Cdfrete_API_Client::account_scope()` for the token that will be quoted
+	 * with. Prices depend on the account, and an empty `$from` means the origin is the pickup
+	 * address of that account, so two shipping zones carrying different tokens must not read
+	 * each other's entries. An empty `$from` cannot collide with a configured one either:
+	 * `Cdfrete_Shipping_Method::classify_origin()` lets through eight digits or nothing at all.
 	 */
-	public static function build_key( string $from, string $to, array $volumes, array $cargo_types, ?array $recipient = null ): string {
+	public static function build_key( string $account, string $from, string $to, array $volumes, array $cargo_types, float $invoice, ?array $recipient = null ): string {
 		$data = wp_json_encode( [
 			'v'           => self::VERSION,
+			'account'     => $account,
 			'from'        => $from,
 			'to'          => $to,
 			'volumes'     => $volumes,
 			'cargo_types' => $cargo_types,
+			'invoice'     => $invoice,
 			'recipient'   => $recipient,
 		] );
 		return self::PREFIX . md5( $data );

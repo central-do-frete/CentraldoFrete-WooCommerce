@@ -7,6 +7,17 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 
 	private const CARGO_TYPES_OPTION = 'centraldofrete_cargotypes';
 
+	/** Origins the service resolved for quotes sent without one, keyed by account scope. */
+	private const RESOLVED_ORIGIN_OPTION = 'cdfrete_resolved_origin';
+
+	/** How many accounts that map keeps, the least recently changed dropping out first. */
+	private const RESOLVED_ORIGIN_LIMIT = 20;
+
+	/** How the store postcode stands as a quotation origin. */
+	public const ORIGIN_VALID     = 'valid';
+	public const ORIGIN_MISSING   = 'missing';
+	public const ORIGIN_MALFORMED = 'malformed';
+
 	public function __construct( $instance_id = 0 ) {
 		$this->id                 = 'centraldofrete';
 		$this->instance_id        = absint( $instance_id );
@@ -24,8 +35,7 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 		$this->init_form_fields();
 		$this->init_settings();
 
-		$this->title   = __( 'Central do Frete', 'central-do-frete' );
-		$this->enabled = $this->get_option( 'enabled', 'yes' );
+		$this->title = __( 'Central do Frete', 'central-do-frete' );
 
 		add_action( 'woocommerce_update_options_shipping_' . $this->id, [ $this, 'process_admin_options' ] );
 		add_action( 'woocommerce_update_options_shipping_' . $this->id, [ $this, 'maybe_refresh_cargo_types' ] );
@@ -44,12 +54,6 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 				'title'       => __( '🔌 Conexão com a Central do Frete', 'central-do-frete' ),
 				'type'        => 'title',
 				'description' => __( 'Configure sua conta para começar a usar o serviço.', 'central-do-frete' ),
-			],
-			'enabled' => [
-				'title'       => __( 'Ativar método de entrega', 'central-do-frete' ),
-				'type'        => 'checkbox',
-				'default'     => 'yes',
-				'label'       => __( 'Habilitar cotações da Central do Frete', 'central-do-frete' ),
 			],
 			'token' => [
 				'title'       => __( 'Token de acesso', 'central-do-frete' ),
@@ -106,8 +110,8 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 				'title'       => __( 'Calculador na página do produto', 'central-do-frete' ),
 				'type'        => 'checkbox',
 				'default'     => 'yes',
-				'label'       => __( 'Mostrar campo "Calcule o frete"', 'central-do-frete' ),
-				'description' => __( 'Permite calcular o frete antes de adicionar ao carrinho.', 'central-do-frete' ),
+				'label'       => __( 'Cotar na página do produto', 'central-do-frete' ),
+				'description' => __( 'Permite calcular o frete antes de adicionar ao carrinho. Vale para esta área de entrega: quem digitar um CEP de outra área recebe o que estiver configurado lá.', 'central-do-frete' ),
 			],
 
 			// ═══════════════════════════════════════════════════════════════
@@ -424,6 +428,12 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 
 	/**
 	 * Check if shipping is available for the given package.
+	 *
+	 * The property read here is the zone screen toggle, not a setting of this plugin:
+	 * `WC_Shipping_Zone::get_shipping_methods()` assigns it from the zone method row's
+	 * `is_enabled` column after constructing the instance, so whatever the form stored is
+	 * discarded. It is the only switch that governs, which is why this plugin no longer
+	 * offers one of its own.
 	 */
 	public function is_available( $package ): bool {
 		if ( $this->enabled !== 'yes' ) {
@@ -458,6 +468,270 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	}
 
 	/**
+	 * How a raw store postcode stands as a quotation origin.
+	 *
+	 * Kept free of WordPress so it can be tested on its own, and it is the one place that
+	 * decides: the service validates `from` as exactly eight characters and only falls back to
+	 * the pickup address of the account when the key is absent, so anything that is not eight
+	 * digits has to leave as no origin at all rather than as a value that fails on the way in.
+	 * `postcode` is therefore either empty or eight digits, never anything else.
+	 *
+	 * @return array{status: string, postcode: string, typed: string}
+	 */
+	public static function classify_origin( string $raw ): array {
+		$typed  = trim( $raw );
+		$digits = preg_replace( '/\D/', '', $typed );
+
+		if ( '' === $digits ) {
+			return [ 'status' => self::ORIGIN_MISSING, 'postcode' => '', 'typed' => $typed ];
+		}
+
+		if ( strlen( $digits ) !== 8 ) {
+			return [ 'status' => self::ORIGIN_MALFORMED, 'postcode' => '', 'typed' => $typed ];
+		}
+
+		return [ 'status' => self::ORIGIN_VALID, 'postcode' => $digits, 'typed' => $typed ];
+	}
+
+	/**
+	 * How the postcode set in WooCommerce stands as a quotation origin.
+	 */
+	private static function store_origin(): array {
+		return self::classify_origin( (string) get_option( 'woocommerce_store_postcode', '' ) );
+	}
+
+	/**
+	 * The postcode the store quotes from: eight digits, or empty when the store has none the
+	 * service would accept. An origin it would reject is left out so the account decides.
+	 */
+	public static function store_origin_postcode(): string {
+		return self::store_origin()['postcode'];
+	}
+
+	/**
+	 * Remember the origin the service resolved for a quote sent without one.
+	 *
+	 * It exists so the settings screen can name the postcode instead of only naming where it
+	 * comes from, and it is kept per account because a store can carry a different token per
+	 * shipping zone, each with its own pickup address.
+	 */
+	public static function record_resolved_origin( string $account, string $zipcode ): void {
+		$stored = get_option( self::RESOLVED_ORIGIN_OPTION, [] );
+		$stored = is_array( $stored ) ? $stored : [];
+
+		$updated = self::with_resolved_origin( $stored, $account, $zipcode, time() );
+
+		if ( $updated === $stored ) {
+			return;
+		}
+
+		update_option( self::RESOLVED_ORIGIN_OPTION, $updated, false );
+	}
+
+	/**
+	 * The resolved origin map with one account's postcode written into it.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. Entries the map does not recognise
+	 * are dropped, which is also how the single pair an older version stored is retired, and the
+	 * accounts whose origin changed longest ago are pruned past the limit so a merchant rotating
+	 * tokens cannot grow the option without bound. The map comes back identical when nothing
+	 * moved, so the caller writes to the database only on a real change - which is why `updated`
+	 * dates the last change to an origin and not the last quote that confirmed it, and why the
+	 * prune goes by that same measure rather than by recent use.
+	 *
+	 * @param array  $stored  Map as it stands, keyed by account scope.
+	 * @param string $account Account scope the quote went out under.
+	 * @param string $zipcode Origin the service reported, digits only.
+	 * @param int    $now     Timestamp to record against the entry.
+	 */
+	public static function with_resolved_origin( array $stored, string $account, string $zipcode, int $now, int $limit = self::RESOLVED_ORIGIN_LIMIT ): array {
+		$map = self::normalize_resolved_origins( $stored );
+
+		if ( ( $map[ $account ]['zipcode'] ?? null ) !== $zipcode ) {
+			$map[ $account ] = [ 'zipcode' => $zipcode, 'updated' => $now ];
+		}
+
+		if ( count( $map ) > $limit ) {
+			uasort( $map, static function ( array $a, array $b ): int {
+				return $b['updated'] <=> $a['updated'];
+			} );
+
+			$map = array_slice( $map, 0, $limit, true );
+		}
+
+		return $map === $stored ? $stored : $map;
+	}
+
+	/**
+	 * Only entries shaped the way this version writes them, in the order they were stored.
+	 *
+	 * The key is read back as whatever PHP made of it: an account scope is a sha256 prefix, and
+	 * one that happens to be all digits becomes an integer key on the way into the array. It is
+	 * the shape of the entry that says whether a row belongs to this version, never the key.
+	 */
+	private static function normalize_resolved_origins( array $stored ): array {
+		$map = [];
+
+		foreach ( $stored as $account => $entry ) {
+			if ( ! is_array( $entry ) || ! isset( $entry['zipcode'] ) ) {
+				continue;
+			}
+
+			$map[ (string) $account ] = [
+				'zipcode' => (string) $entry['zipcode'],
+				'updated' => (int) ( $entry['updated'] ?? 0 ),
+			];
+		}
+
+		return $map;
+	}
+
+	/**
+	 * The last origin the service resolved for this account, or an empty string.
+	 */
+	public static function get_resolved_origin( string $account ): string {
+		$stored = get_option( self::RESOLVED_ORIGIN_OPTION, [] );
+		$stored = is_array( $stored ) ? $stored : [];
+
+		return (string) ( self::normalize_resolved_origins( $stored )[ $account ]['zipcode'] ?? '' );
+	}
+
+	/**
+	 * Say which postcode the quotes leave from, above the settings form.
+	 *
+	 * Hooked on `get_admin_options_html()` rather than `admin_options()` so the notice shows
+	 * on the instance settings screen and inside the shipping zone modal alike.
+	 *
+	 * A quote from the wrong origin still looks like a quote: the prices and the carrier list
+	 * change, nothing errors. So the screen states the origin it is about to use, and says so
+	 * loudly when that is not the postcode the merchant set in WooCommerce.
+	 */
+	public function get_admin_options_html(): string {
+		return $this->token_notice_html() . $this->origin_notice_html() . parent::get_admin_options_html();
+	}
+
+	/**
+	 * Say that this shipping zone has no token, above the settings form.
+	 *
+	 * A zone the merchant added but never pasted a token into looks finished: WooCommerce
+	 * enables it on the spot with the form defaults, and the cargo type list is store wide, so
+	 * a zone with no token of its own can even show the loaded-types tick. It quotes nothing.
+	 * The zone is named because a store carrying the method in several zones needs to know
+	 * which one this is, and the token notice comes first because nothing else on the screen
+	 * matters until there is a token.
+	 */
+	private function token_notice_html(): string {
+		if ( ! empty( $this->get_option( 'token', '' ) ) ) {
+			return '';
+		}
+
+		$panel_link = '<a href="https://app.centraldofrete.com" target="_blank">app.centraldofrete.com</a>';
+		$zone_name  = $this->zone_name();
+
+		$line = '' === $zone_name
+			? sprintf(
+				/* translators: %s: link to the Central do Frete panel */
+				__( 'Esta área de entrega está sem token de acesso, então a Central do Frete não cota nela. Cole o token em %s → Integrações → API.', 'central-do-frete' ),
+				$panel_link
+			)
+			: sprintf(
+				/* translators: 1: shipping zone name, 2: link to the Central do Frete panel */
+				__( 'A área de entrega <strong>%1$s</strong> está sem token de acesso, então a Central do Frete não cota nela. Cole o token em %2$s → Integrações → API.', 'central-do-frete' ),
+				esc_html( $zone_name ),
+				$panel_link
+			);
+
+		return sprintf(
+			'<div class="notice notice-warning inline"><p>%s</p></div>',
+			wp_kses_post( $line )
+		);
+	}
+
+	/**
+	 * The name of the shipping zone this instance sits in, empty when there is none to name.
+	 */
+	private function zone_name(): string {
+		if ( empty( $this->instance_id ) || ! class_exists( 'WC_Shipping_Zones' ) ) {
+			return '';
+		}
+
+		$zone = WC_Shipping_Zones::get_zone_by( 'instance_id', $this->instance_id );
+
+		return $zone instanceof WC_Shipping_Zone ? trim( (string) $zone->get_zone_name() ) : '';
+	}
+
+	/**
+	 * The store postcode fails in two different ways, and the merchant has to be able to tell
+	 * which one is theirs: an unfilled address and a mistyped one have different fixes. So a
+	 * postcode the service would reject gets its own warning saying it is invalid, instead of
+	 * being reported as an address that was never filled in.
+	 */
+	private function origin_notice_html(): string {
+		$origin       = self::store_origin();
+		$general_link = sprintf(
+			'<a href="%s">%s</a>',
+			esc_url( admin_url( 'admin.php?page=wc-settings&tab=general' ) ),
+			esc_html__( 'WooCommerce › Configurações › Geral', 'central-do-frete' )
+		);
+
+		if ( self::ORIGIN_VALID === $origin['status'] ) {
+			return sprintf(
+				'<div class="notice notice-info inline"><p>%s</p></div>',
+				wp_kses_post( sprintf(
+					/* translators: 1: store postcode, 2: link to the WooCommerce general settings */
+					__( 'As cotações saem do CEP da loja, <strong>%1$s</strong>. Para mudar a origem, altere o endereço da loja em %2$s.', 'central-do-frete' ),
+					esc_html( self::format_postcode( $origin['postcode'] ) ),
+					$general_link
+				) )
+			);
+		}
+
+		$resolved   = self::get_resolved_origin( Cdfrete_API_Client::account_scope( (string) $this->get_option( 'token', '' ) ) );
+		$last_quote = '' === $resolved
+			? ''
+			: ' ' . sprintf(
+				/* translators: %s: postcode the service used on the last quote */
+				__( 'Na última cotação isso foi o CEP <strong>%s</strong>.', 'central-do-frete' ),
+				esc_html( self::format_postcode( $resolved ) )
+			);
+
+		if ( self::ORIGIN_MALFORMED === $origin['status'] ) {
+			$origin_line = sprintf(
+				/* translators: %s: store postcode as the merchant typed it */
+				__( 'O CEP da loja, <strong>%s</strong>, não é válido: um CEP tem 8 números. Enquanto ele não for corrigido, as cotações são enviadas sem origem e a Central do Frete usa o endereço de coleta cadastrado na sua conta.', 'central-do-frete' ),
+				esc_html( $origin['typed'] )
+			);
+
+			$action_line = sprintf(
+				/* translators: %s: link to the WooCommerce general settings */
+				__( 'A origem muda o preço e a lista de transportadoras. Corrija o CEP da loja em %s.', 'central-do-frete' ),
+				$general_link
+			);
+		} else {
+			$origin_line = __( 'A loja está sem CEP, então as cotações são enviadas sem origem e a Central do Frete usa o endereço de coleta cadastrado na sua conta.', 'central-do-frete' );
+
+			$action_line = sprintf(
+				/* translators: %s: link to the WooCommerce general settings */
+				__( 'A origem muda o preço e a lista de transportadoras. Se os seus envios não saem do endereço de coleta da conta, preencha o CEP da loja em %s.', 'central-do-frete' ),
+				$general_link
+			);
+		}
+
+		return sprintf(
+			'<div class="notice notice-warning inline"><p>%1$s</p><p>%2$s</p></div>',
+			wp_kses_post( $origin_line . $last_quote ),
+			wp_kses_post( $action_line )
+		);
+	}
+
+	/**
+	 * Eight digits as a Brazilian postcode, so the merchant reads it the way it was typed.
+	 */
+	private static function format_postcode( string $digits ): string {
+		return strlen( $digits ) === 8 ? substr( $digits, 0, 5 ) . '-' . substr( $digits, 5 ) : $digits;
+	}
+
+	/**
 	 * Calculate shipping rates.
 	 */
 	public function calculate_shipping( $package = [] ): void {
@@ -469,20 +743,15 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 			return;
 		}
 
-		$from = preg_replace( '/\D/', '', get_option( 'woocommerce_store_postcode', '' ) );
+		$from = self::store_origin_postcode();
 		$to   = preg_replace( '/\D/', '', $package['destination']['postcode'] ?? '' );
 
 		Cdfrete_API_Client::log( 'info', sprintf(
 			'[SHIP] Iniciando cotação - Origem: %s, Destino: %s, Itens: %d',
-			$from ?: 'N/A',
+			$from ?: 'cadastro da conta na Central do Frete',
 			$to ?: 'N/A',
 			count( $package['contents'] ?? [] )
 		) );
-
-		if ( empty( $from ) ) {
-			Cdfrete_API_Client::log( 'warning', '[SHIP] CEP de origem não configurado na loja' );
-			return;
-		}
 
 		if ( empty( $to ) ) {
 			Cdfrete_API_Client::log( 'debug', '[SHIP] CEP de destino não informado (aguardando input do cliente)' );
@@ -575,7 +844,15 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 		) );
 
 		// One builder for both quoting paths, so the cache version invalidates the cart too.
-		$cache_key = Cdfrete_Cache::build_key( $from, $to, $volumes, $cargo_types, $recipient );
+		$cache_key = Cdfrete_Cache::build_key(
+			Cdfrete_API_Client::account_scope( $token ),
+			$from,
+			$to,
+			$volumes,
+			$cargo_types,
+			$invoice,
+			$recipient
+		);
 		$cached    = Cdfrete_Cache::get( $cache_key );
 
 		if ( $cached !== false ) {
@@ -932,21 +1209,400 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	}
 
 	/**
-	 * Get shipping method settings (static helper).
+	 * Settings of one instance, by id.
 	 */
-	public static function get_settings(): array {
-		global $wpdb;
+	public static function get_instance_settings( int $instance_id ): array {
+		$settings = get_option( 'woocommerce_centraldofrete_' . $instance_id . '_settings', [] );
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$instance_id = $wpdb->get_var(
-			"SELECT instance_id FROM {$wpdb->prefix}woocommerce_shipping_zone_methods WHERE method_id = 'centraldofrete' LIMIT 1"
-		);
+		return is_array( $settings ) ? $settings : [];
+	}
 
-		if ( ! $instance_id ) {
-			return [];
+	/**
+	 * Settings of the instance that serves a destination.
+	 *
+	 * A store can add the method to several shipping zones, each with its own token, handling
+	 * fee and display rules, so "the settings" only mean something next to a destination. The
+	 * zone comes from WooCommerce's own matcher, and no settings are returned rather than
+	 * another zone's.
+	 *
+	 * "Offers this method" here means the zone method row is enabled, which is the zone screen
+	 * toggle and the only switch that turns the method itself off. The settings hold no second
+	 * one: the checkbox that used to sit there was removed in 3.3.0 because WooCommerce
+	 * overwrites the property it fed, so it decided nothing anywhere.
+	 *
+	 * @param array $destination Package destination: country, state and postcode.
+	 */
+	public static function get_settings_for_destination( array $destination ): array {
+		return self::resolve_for_destination( $destination )['settings'];
+	}
+
+	/**
+	 * The instance that serves a destination, together with its settings.
+	 *
+	 * Empty settings are not the same fact as no instance, and a caller that has to tell the
+	 * two apart cannot do it from the settings alone: WooCommerce enables the method the moment
+	 * it is added to a zone but stores no settings until the merchant saves the form, so a zone
+	 * that answers can answer with nothing. The instance id says which of the two happened.
+	 *
+	 * This resolves for the product page, its only caller, and that shows where one zone holds
+	 * the method twice: the entry preferred there is one that will answer the product page, so
+	 * an entry with the calculator switched off is passed over for a sibling without it.
+	 * Anything else that needs an instance per destination has its own preference to state.
+	 *
+	 * @param array $destination Package destination: country, state and postcode.
+	 *
+	 * @return array{instance_id: int|null, settings: array}
+	 */
+	public static function resolve_for_destination( array $destination ): array {
+		$instance_id = self::instance_id_for_destination( $destination );
+
+		return [
+			'instance_id' => $instance_id,
+			'settings'    => null === $instance_id ? [] : self::get_instance_settings( $instance_id ),
+		];
+	}
+
+	private static function instance_id_for_destination( array $destination ): ?int {
+		$enabled = self::get_enabled_instance_ids();
+
+		if ( empty( $enabled ) ) {
+			return null;
 		}
 
-		return get_option( 'woocommerce_centraldofrete_' . $instance_id . '_settings', [] );
+		$destination = self::destination_for_zone_matching( $destination );
+
+		$zone = WC_Shipping_Zones::get_zone_matching_package( [ 'destination' => $destination ] );
+
+		$zone_instance_ids = [];
+
+		foreach ( $zone->get_shipping_methods( true ) as $method ) {
+			if ( 'centraldofrete' === $method->id ) {
+				$zone_instance_ids[] = (int) $method->instance_id;
+			}
+		}
+
+		$picked = self::pick_instance(
+			$enabled,
+			$zone_instance_ids,
+			self::quotable_instance_ids( $zone_instance_ids ),
+			self::saved_instance_ids( $zone_instance_ids )
+		);
+
+		if ( '' !== trim( (string) $destination['state'] ) ) {
+			return $picked;
+		}
+
+		return self::stateless_pick( $picked, $zone_instance_ids, self::state_defined_instance_ids() );
+	}
+
+	/**
+	 * The destination as the zone matcher has to receive it, with its state filled in.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. WooCommerce matches a zone defined
+	 * by state on "<country>:<state>", so a destination with a blank state skips every such zone
+	 * and falls through to the next by order without a word - a broader zone with another token,
+	 * another handling fee and another restriction. The postcode is not silent about the state:
+	 * Correios allocates the ranges per federative unit, so the one the shopper just typed is
+	 * derived and matched on, and the product page resolves the zone the checkout will.
+	 *
+	 * This is not the session state CF-387 excluded. That one belongs to whichever address the
+	 * session happens to hold and matches a zone the shopper is not in; this one is the
+	 * destination itself. A state the caller already has is therefore left exactly as it is, and
+	 * outside Brazil nothing is derived, because the ranges mean nothing there.
+	 *
+	 * @param array $destination Package destination: country, state and postcode.
+	 */
+	public static function destination_for_zone_matching( array $destination ): array {
+		$destination = array_merge( [
+			'country'  => 'BR',
+			'state'    => '',
+			'postcode' => '',
+		], $destination );
+
+		$stateless = '' === trim( (string) $destination['state'] );
+		$brazilian = 'BR' === strtoupper( trim( (string) $destination['country'] ) );
+
+		if ( $stateless && $brazilian ) {
+			$derived = self::state_for_postcode( (string) $destination['postcode'] );
+
+			if ( null !== $derived ) {
+				$destination['state'] = $derived;
+			}
+		}
+
+		return $destination;
+	}
+
+	/**
+	 * The federative unit a Brazilian postcode belongs to, or null when no range covers it.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. Null is not a fallback state and no
+	 * range is widened to avoid one: a wrong unit here means a deterministically wrong zone and
+	 * no sign that anything went wrong, which is worse than showing no price. A postcode no
+	 * published range covers leaves the destination stateless, and `stateless_pick()` then
+	 * refuses rather than answer from a zone that only looks like a match.
+	 *
+	 * @param string $postcode Destination postcode, with or without punctuation.
+	 */
+	public static function state_for_postcode( string $postcode ): ?string {
+		$digits = (string) preg_replace( '/\D/', '', $postcode );
+
+		if ( strlen( $digits ) !== 8 ) {
+			return null;
+		}
+
+		$number = (int) $digits;
+
+		foreach ( self::POSTCODE_STATE_RANGES as $range ) {
+			if ( $number >= (int) $range[1] && $number <= (int) $range[2] ) {
+				return $range[0];
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Postcode ranges per federative unit, each with the postcode that verified it.
+	 *
+	 * Ranges as published by Correios, "Faixa de CEP por UF/Localidade":
+	 * https://buscacepinter.correios.com.br/app/faixa_cep_uf_localidade/index.php
+	 * Every row was verified on 2026-08-28 by resolving the probe postcode recorded for it
+	 * through ViaCEP and comparing the federative unit reported; all thirty matched. The probe
+	 * stays next to its range so a later session can re-verify the table without redoing the
+	 * research, and nothing is added here that cannot be cited the same way.
+	 *
+	 * 78900000-78999999 is deliberately absent. It is listed historically for Rondônia, but a
+	 * sweep of the whole range on 2026-08-28 found no allocated postcode answering: it is the
+	 * range from before the renumbering to 768xx, and Rondônia's live range 76800000-76999999
+	 * verified fine. It stays a gap, and a postcode inside it derives nothing.
+	 *
+	 * The bounds are strings so they read as Correios publishes them - written as integers, the
+	 * leading zero would make 01000000 an octal literal.
+	 *
+	 * @var array<int, array{0: string, 1: string, 2: string, 3: string}> Unit, first, last, probe.
+	 */
+	private const POSTCODE_STATE_RANGES = [
+		[ 'SP', '01000000', '19999999', '08599000' ],
+		[ 'RJ', '20000000', '28999999', '26299000' ],
+		[ 'ES', '29000000', '29999999', '29299000' ],
+		[ 'MG', '30000000', '39999999', '39499000' ],
+		[ 'BA', '40000000', '48999999', '40010000' ],
+		[ 'SE', '49000000', '49999999', '49001000' ],
+		[ 'PE', '50000000', '56999999', '50010000' ],
+		[ 'AL', '57000000', '57999999', '57699000' ],
+		[ 'PB', '58000000', '58999999', '58499000' ],
+		[ 'RN', '59000000', '59999999', '59299000' ],
+		[ 'CE', '60000000', '63999999', '62399000' ],
+		[ 'PI', '64000000', '64999999', '64099000' ],
+		[ 'MA', '65000000', '65999999', '65049000' ],
+		[ 'PA', '66000000', '68899999', '68754000' ],
+		[ 'AP', '68900000', '68999999', '68994000' ],
+		[ 'AM', '69000000', '69299999', '69059000' ],
+		[ 'RR', '69300000', '69399999', '69319000' ],
+		[ 'AM', '69400000', '69899999', '69424000' ],
+		[ 'AC', '69900000', '69999999', '69919000' ],
+		[ 'DF', '70000000', '72799999', '71959000' ],
+		[ 'GO', '72800000', '72999999', '72899000' ],
+		[ 'DF', '73000000', '73699999', '73006000' ],
+		[ 'GO', '73700000', '76799999', '75714000' ],
+		[ 'RO', '76800000', '76999999', '76839000' ],
+		[ 'TO', '77000000', '77999999', '77449000' ],
+		[ 'MT', '78000000', '78899999', '78449000' ],
+		[ 'MS', '79000000', '79999999', '79949000' ],
+		[ 'PR', '80000000', '87999999', '80010000' ],
+		[ 'SC', '88000000', '89999999', '89899000' ],
+		[ 'RS', '90000000', '99999999', '96999000' ],
+	];
+
+	/**
+	 * Whether a zone matched without a state is the zone the destination really falls into.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. WooCommerce matches a state
+	 * location as "<country>:<state>", so with no state that criterion matches nothing: a zone
+	 * defined by state is skipped rather than considered, and the query falls through to the
+	 * next zone by order, which may be a country wide zone carrying this method with another
+	 * token, another fee and another restriction. Nothing distinguishes that from a real match,
+	 * so while a zone defined by state carries the method anywhere else, the match does not
+	 * stand and the postcode gets no price instead of another region's.
+	 *
+	 * This is the exception now rather than the rule: `state_for_postcode()` fills the state in
+	 * before the zone is matched, so a destination arrives here stateless only when no published
+	 * range covers its postcode, or when the caller passed neither state nor a Brazilian country.
+	 *
+	 * @param int|null $picked            Instance the matched zone points at, null when none did.
+	 * @param int[]    $zone_instance_ids Ids this method has in the matched zone.
+	 * @param int[]    $state_defined_ids Ids of enabled instances in zones defined by state.
+	 */
+	public static function stateless_pick( ?int $picked, array $zone_instance_ids, array $state_defined_ids ): ?int {
+		if ( null === $picked ) {
+			return null;
+		}
+
+		$elsewhere = array_diff(
+			array_map( 'intval', $state_defined_ids ),
+			array_map( 'intval', $zone_instance_ids )
+		);
+
+		return empty( $elsewhere ) ? $picked : null;
+	}
+
+	/**
+	 * Which enabled instance a matched zone points at.
+	 *
+	 * Kept free of WordPress so the choice can be tested on its own. Only an instance of the
+	 * matched zone qualifies: a destination resolving to a zone that does not carry this method
+	 * gets nothing back rather than some other zone's settings. Every destination is matched,
+	 * including in a store with a single instance - it used to answer without consulting the
+	 * zone, on the grounds that a postcode alone could not reach a zone defined by state, and
+	 * the postcode now carries its state.
+	 *
+	 * One zone can hold the method twice, and then the lowest id is the entry added first, which
+	 * is the one most likely to be a form the merchant closed without saving. Preferring narrows
+	 * the field without ordering it, so the whole order is written out here and it is three
+	 * groups deep: an entry that can answer beats a saved entry that cannot, and a saved entry
+	 * beats one that was never saved at all. The lowest id wins inside whichever group is used.
+	 * The middle group is why the third exists: a merchant who saved an entry and switched the
+	 * calculator off in it decided something about that region, while an entry nobody ever saved
+	 * decided nothing, and letting the leftover speak for the zone would answer a shopper with a
+	 * page level failure and send the merchant to finish a form that governs nothing. The answer
+	 * follows from the ids and the two lists alone, so it does not move with the order the
+	 * database returned them in.
+	 *
+	 * @param int[] $enabled_ids       Ids of every enabled instance, store wide.
+	 * @param int[] $zone_instance_ids Ids this method has in the matched zone.
+	 * @param int[] $quotable_ids      Of those, the ones that could actually answer the caller.
+	 * @param int[] $saved_ids         Of those, the ones whose settings exist at all.
+	 */
+	public static function pick_instance( array $enabled_ids, array $zone_instance_ids, array $quotable_ids = [], array $saved_ids = [] ): ?int {
+		$enabled    = array_values( array_unique( array_map( 'intval', $enabled_ids ) ) );
+		$candidates = array_intersect( $enabled, array_map( 'intval', $zone_instance_ids ) );
+
+		if ( empty( $candidates ) ) {
+			return null;
+		}
+
+		$preferred = [
+			array_intersect( $candidates, array_map( 'intval', $quotable_ids ) ),
+			array_intersect( $candidates, array_map( 'intval', $saved_ids ) ),
+		];
+
+		foreach ( $preferred as $group ) {
+			if ( ! empty( $group ) ) {
+				return min( $group );
+			}
+		}
+
+		return min( $candidates );
+	}
+
+	/**
+	 * Which of these instances could actually answer the product page.
+	 *
+	 * Two shipping zones with different settings are two decisions to respect, but one zone
+	 * holding two entries where only one was ever configured is a single decision plus a
+	 * leftover, and refusing on account of the leftover would tell the shopper their region
+	 * cannot be quoted while the sibling entry quotes that region.
+	 *
+	 * The product page calculator switch counts here, and why it once looked as though it should
+	 * not is worth writing down, because unifying the two readings of it will look like a
+	 * simplification. There are exactly two, and both go through
+	 * `Cdfrete_Frontend_Calculator::calculator_is_offered()`. This one, reached through
+	 * `instance_can_answer_the_product_page()`, asks which of a zone's entries answers when the
+	 * zone holds more than one, and `any_instance_offers_the_calculator()` asks the same
+	 * question of a store with no destination yet through the same predicate. The other,
+	 * `Cdfrete_Frontend_Calculator::quote_state()`, asks whether the entry that answered will
+	 * quote at all. Leave the switch out of this one and a leftover entry with it off speaks for
+	 * a zone whose sibling has it on, telling the shopper their region gets no calculation while
+	 * the cart quotes them from that sibling. Have `quote_state()` trust this list instead of
+	 * reading the settings itself and a zone the merchant switched off starts answering.
+	 *
+	 * An entry the switch rules out is still a decision, so it is not dropped to the back of the
+	 * queue: `pick_instance()` prefers a saved entry over a never saved one, and a zone whose
+	 * only entry has the switch off refuses through `quote_state()` reading that entry's own
+	 * settings, which is the sentence naming the region rather than the page.
+	 *
+	 * @param int[] $instance_ids Instances to test.
+	 *
+	 * @return int[] Those that could answer.
+	 */
+	private static function quotable_instance_ids( array $instance_ids ): array {
+		$quotable = [];
+
+		foreach ( $instance_ids as $instance_id ) {
+			if ( self::instance_can_answer_the_product_page( self::get_instance_settings( (int) $instance_id ) ) ) {
+				$quotable[] = (int) $instance_id;
+			}
+		}
+
+		return $quotable;
+	}
+
+	/**
+	 * Which of these instances the merchant ever saved a form for.
+	 *
+	 * WooCommerce enables a zone method the moment it is added and stores no settings until the
+	 * form is saved, so this is the line between a decision and a leftover, whatever the
+	 * decision turned out to be. `pick_instance()` orders by it, so a zone holding a leftover
+	 * next to an entry that was configured and then switched off answers from the one that was
+	 * configured.
+	 *
+	 * @param int[] $instance_ids Instances to test.
+	 *
+	 * @return int[] Those with settings stored.
+	 */
+	private static function saved_instance_ids( array $instance_ids ): array {
+		$saved = [];
+
+		foreach ( $instance_ids as $instance_id ) {
+			if ( ! empty( self::get_instance_settings( (int) $instance_id ) ) ) {
+				$saved[] = (int) $instance_id;
+			}
+		}
+
+		return $saved;
+	}
+
+	/**
+	 * Whether one instance is a finished decision to price the product page.
+	 *
+	 * Kept free of WordPress so it can be tested on its own. Saved and holding a token is what
+	 * separates an entry the merchant decided on from one they abandoned: WooCommerce enables a
+	 * zone method the moment it is added and stores no settings until the form is saved, so an
+	 * abandoned entry sits there enabled and empty. The calculator switch then has to be on,
+	 * because an entry that will not answer is not a candidate to answer. Absent counts as on,
+	 * which is how a zone saved before the field existed keeps quoting.
+	 *
+	 * Only that one switch is read. A store that saved the removed "Ativar método de entrega"
+	 * checkbox still has `enabled` in its settings row, and it is left there unread: it never
+	 * governed anything, so acting on it now would silence a zone that quotes today.
+	 *
+	 * This is the product page's question, and the cart's is not the same one: the cart reads
+	 * its own instance through `is_available()` and the calculator switch is none of its
+	 * business. Do not reuse this for it.
+	 *
+	 * @param array $settings Settings of a single instance, empty when it has none stored.
+	 */
+	public static function instance_can_answer_the_product_page( array $settings ): bool {
+		if ( empty( $settings ) || empty( $settings['token'] ) ) {
+			return false;
+		}
+
+		return Cdfrete_Frontend_Calculator::calculator_is_offered( $settings );
+	}
+
+	/**
+	 * Debug mode has no zone context: it is a diagnostic switch, and a merchant who turned it
+	 * on in one zone asked for logs from the whole plugin.
+	 */
+	public static function debug_enabled(): bool {
+		foreach ( self::get_all_settings() as $settings ) {
+			if ( ( $settings['debug'] ?? 'no' ) === 'yes' ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -958,7 +1614,7 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 		$settings = [];
 
 		foreach ( self::get_enabled_instance_ids() as $instance_id ) {
-			$instance_settings = get_option( 'woocommerce_centraldofrete_' . $instance_id . '_settings', [] );
+			$instance_settings = self::get_instance_settings( (int) $instance_id );
 
 			if ( ! empty( $instance_settings ) ) {
 				$settings[] = $instance_settings;
@@ -985,6 +1641,37 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$instance_ids = $wpdb->get_col(
 			"SELECT instance_id FROM {$wpdb->prefix}woocommerce_shipping_zone_methods WHERE method_id = 'centraldofrete' AND is_enabled = 1"
+		);
+
+		return $instance_ids;
+	}
+
+	/**
+	 * Enabled instances sitting in a shipping zone that has at least one state location.
+	 *
+	 * Same reasoning as `get_enabled_instance_ids()`: reading zone locations through the
+	 * WooCommerce API means instantiating every method of every zone, which is too much for a
+	 * product page. The query takes no user input and the result is reused for the rest of the
+	 * request.
+	 */
+	private static function state_defined_instance_ids(): array {
+		static $instance_ids = null;
+
+		if ( null !== $instance_ids ) {
+			return $instance_ids;
+		}
+
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$instance_ids = $wpdb->get_col(
+			"SELECT DISTINCT methods.instance_id
+			FROM {$wpdb->prefix}woocommerce_shipping_zone_methods AS methods
+			INNER JOIN {$wpdb->prefix}woocommerce_shipping_zone_locations AS locations
+				ON locations.zone_id = methods.zone_id
+			WHERE methods.method_id = 'centraldofrete'
+				AND methods.is_enabled = 1
+				AND locations.location_type = 'state'"
 		);
 
 		return $instance_ids;

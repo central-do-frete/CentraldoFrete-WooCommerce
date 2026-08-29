@@ -171,7 +171,8 @@ Os logs incluem:
 
 ## Testes
 
-A regra de classe de entrega é coberta por PHPUnit e roda sem WordPress.
+Os testes rodam em PHPUnit sem carregar o WordPress nem o WooCommerce.
+Além da regra de classe de entrega, cobrem a origem das cotações, a chave de cache, o estado derivado do CEP, a instância que responde por cada área de entrega e as mensagens mostradas quando não há cotação.
 
 ```bash
 composer install
@@ -187,23 +188,7 @@ docker run --rm -v "$PWD":/app -w /app php:7.4-fpm-alpine php vendor/bin/phpunit
 
 ## Changelog
 
-### 3.1.0
-- Restrição por classe de entrega, por área de entrega
-- Calculador da página do produto respeita a restrição
-- Salvar as configurações passa a invalidar o cache de tarifas do WooCommerce
-- Testes automatizados da regra de classe (PHPUnit)
-
-### 3.0.0
-- Reescrita completa do plugin
-- Sistema de cache com WordPress Transients
-- Calculador de frete na página do produto
-- Exibição de logo das transportadoras
-- Compatibilidade com HPOS
-- Interface de configuração reorganizada
-- Logs estruturados
-
-### 2.0.x
-- Versão anterior (legado)
+O changelog vive na seção `== Changelog ==` do `readme.txt`, que é a versão publicada na ficha do WordPress.org.
 
 ## Suporte
 
