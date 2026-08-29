@@ -15,12 +15,11 @@ use PHPUnit\Framework\TestCase;
 class RefusalTest extends TestCase {
 
 	/**
-	 * The two switches the merchant turned off, and the class restriction of the zone that
+	 * The calculator switch the merchant turned off, and the class restriction of the zone that
 	 * answers, are settings the plugin read. Everything else is a guess - including a list the
 	 * merchant's own filter emptied, where carriers did quote and the plugin hid them.
 	 */
 	private const CHECKED = [
-		Cdfrete_Frontend_Calculator::QUOTE_METHOD_OFF      => Cdfrete_Frontend_Calculator::COVERAGE_RULED_OUT,
 		Cdfrete_Frontend_Calculator::QUOTE_CALCULATOR_OFF  => Cdfrete_Frontend_Calculator::COVERAGE_RULED_OUT,
 		Cdfrete_Frontend_Calculator::REFUSE_CLASS_EXCLUDED => Cdfrete_Frontend_Calculator::COVERAGE_RULED_OUT,
 		Cdfrete_Frontend_Calculator::QUOTE_NO_ZONE         => Cdfrete_Frontend_Calculator::COVERAGE_UNKNOWN,
@@ -59,7 +58,6 @@ class RefusalTest extends TestCase {
 	 */
 	public function test_a_sentence_that_claims_coverage_is_dropped_when_the_plugin_did_not_check(): void {
 		$claims_coverage = [
-			Cdfrete_Frontend_Calculator::QUOTE_METHOD_OFF,
 			Cdfrete_Frontend_Calculator::QUOTE_CALCULATOR_OFF,
 			Cdfrete_Frontend_Calculator::REFUSE_CLASS_EXCLUDED,
 		];
@@ -152,17 +150,6 @@ class RefusalTest extends TestCase {
 	}
 
 	/**
-	 * The two off switches are one fact to the shopper - the merchant chose not to serve that
-	 * region through Central do Frete - and which switch it was is the merchant's business.
-	 */
-	public function test_the_two_switched_off_states_read_the_same_to_the_shopper(): void {
-		$this->assertSame(
-			Cdfrete_Frontend_Calculator::refuse( Cdfrete_Frontend_Calculator::QUOTE_METHOD_OFF, Cdfrete_Frontend_Calculator::COVERAGE_RULED_OUT ),
-			Cdfrete_Frontend_Calculator::refuse( Cdfrete_Frontend_Calculator::QUOTE_CALCULATOR_OFF, Cdfrete_Frontend_Calculator::COVERAGE_RULED_OUT )
-		);
-	}
-
-	/**
 	 * A zone with no token and a zone that was never saved are the same fact to the shopper -
 	 * this store cannot quote here - and the difference between them is the merchant's to fix.
 	 */
@@ -230,15 +217,10 @@ class RefusalTest extends TestCase {
 	}
 
 	/**
-	 * The verdict the code reaches, read apart from the sentences: only a switch the merchant
-	 * turned off proves this region gets no quote.
+	 * The verdict the code reaches, read apart from the sentences: only the calculator switch
+	 * the merchant turned off proves this region gets no quote.
 	 */
 	public function test_only_a_switch_the_merchant_turned_off_counts_as_checked(): void {
-		$this->assertSame(
-			Cdfrete_Frontend_Calculator::COVERAGE_RULED_OUT,
-			Cdfrete_Frontend_Calculator::coverage_verdict( Cdfrete_Frontend_Calculator::QUOTE_METHOD_OFF )
-		);
-
 		$this->assertSame(
 			Cdfrete_Frontend_Calculator::COVERAGE_RULED_OUT,
 			Cdfrete_Frontend_Calculator::coverage_verdict( Cdfrete_Frontend_Calculator::QUOTE_CALCULATOR_OFF )

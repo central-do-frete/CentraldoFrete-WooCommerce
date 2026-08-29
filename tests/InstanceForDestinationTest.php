@@ -35,8 +35,8 @@ class InstanceForDestinationTest extends TestCase {
 	 * cart prices that same basket from the sibling.
 	 */
 	public function test_an_entry_with_the_calculator_off_does_not_speak_for_a_zone_whose_sibling_answers(): void {
-		$leftover = [ 'token' => 'abc', 'enabled' => 'yes', 'product_calculator' => 'no' ];
-		$answers  = [ 'token' => 'abc', 'enabled' => 'yes', 'product_calculator' => 'yes' ];
+		$leftover = [ 'token' => 'abc', 'product_calculator' => 'no' ];
+		$answers  = [ 'token' => 'abc', 'product_calculator' => 'yes' ];
 
 		$this->assertFalse( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( $leftover ) );
 		$this->assertTrue( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( $answers ) );
@@ -50,7 +50,7 @@ class InstanceForDestinationTest extends TestCase {
 	 * nothing quotable the lowest id answers, and the state is read from that entry's settings.
 	 */
 	public function test_a_zone_whose_only_entry_has_the_calculator_off_still_refuses(): void {
-		$off = [ 'token' => 'abc', 'enabled' => 'yes', 'product_calculator' => 'no' ];
+		$off = [ 'token' => 'abc', 'product_calculator' => 'no' ];
 
 		$this->assertSame( 6, Cdfrete_Shipping_Method::pick_instance( [ 6 ], [ 6 ], [], [ 6 ] ) );
 		$this->assertSame(
@@ -68,7 +68,7 @@ class InstanceForDestinationTest extends TestCase {
 	 * that decides nothing.
 	 */
 	public function test_a_saved_entry_that_cannot_answer_outranks_one_that_was_never_saved(): void {
-		$off = [ 'token' => 'abc', 'enabled' => 'yes', 'product_calculator' => 'no' ];
+		$off = [ 'token' => 'abc', 'product_calculator' => 'no' ];
 
 		$this->assertSame( 11, Cdfrete_Shipping_Method::pick_instance( [ 6, 11 ], [ 6, 11 ], [], [ 11 ] ) );
 		$this->assertSame(
@@ -97,14 +97,31 @@ class InstanceForDestinationTest extends TestCase {
 	}
 
 	/**
-	 * The rest of what makes an entry a candidate. Both switches default to on, so a zone saved
-	 * before either field existed is still the entry that answers for its zone.
+	 * The rest of what makes an entry a candidate. The calculator switch defaults to on, so a
+	 * zone saved before the field existed is still the entry that answers for its zone.
 	 */
 	public function test_an_unfinished_or_switched_off_entry_is_not_a_candidate(): void {
 		$this->assertFalse( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [] ) );
-		$this->assertFalse( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [ 'enabled' => 'yes' ] ) );
-		$this->assertFalse( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [ 'token' => 'abc', 'enabled' => 'no' ] ) );
+		$this->assertFalse( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [ 'product_calculator' => 'yes' ] ) );
+		$this->assertFalse( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [ 'token' => 'abc', 'product_calculator' => 'no' ] ) );
 		$this->assertTrue( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [ 'token' => 'abc' ] ) );
+	}
+
+	/**
+	 * The "Ativar método de entrega" checkbox was removed in 3.3.0: WooCommerce overwrites the
+	 * property it fed from the zone method row, so it never switched anything off, in the cart
+	 * or anywhere else. A store that saved it still has the row, and the entry it sits on has to
+	 * go on being the one that answers its zone - reading the leftover now would hand the zone
+	 * to a sibling, or refuse a region the cart prices today.
+	 */
+	public function test_a_stored_value_of_the_removed_method_checkbox_is_ignored(): void {
+		$this->assertTrue(
+			Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [ 'token' => 'abc', 'enabled' => 'no' ] )
+		);
+
+		$this->assertFalse(
+			Cdfrete_Shipping_Method::instance_can_answer_the_product_page( [ 'token' => 'abc', 'enabled' => 'no', 'product_calculator' => 'no' ] )
+		);
 	}
 
 	public function test_the_lowest_id_still_wins_among_instances_that_can_all_quote(): void {

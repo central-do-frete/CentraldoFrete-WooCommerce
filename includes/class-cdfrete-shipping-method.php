@@ -35,8 +35,7 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 		$this->init_form_fields();
 		$this->init_settings();
 
-		$this->title   = __( 'Central do Frete', 'central-do-frete' );
-		$this->enabled = $this->get_option( 'enabled', 'yes' );
+		$this->title = __( 'Central do Frete', 'central-do-frete' );
 
 		add_action( 'woocommerce_update_options_shipping_' . $this->id, [ $this, 'process_admin_options' ] );
 		add_action( 'woocommerce_update_options_shipping_' . $this->id, [ $this, 'maybe_refresh_cargo_types' ] );
@@ -55,12 +54,6 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 				'title'       => __( '🔌 Conexão com a Central do Frete', 'central-do-frete' ),
 				'type'        => 'title',
 				'description' => __( 'Configure sua conta para começar a usar o serviço.', 'central-do-frete' ),
-			],
-			'enabled' => [
-				'title'       => __( 'Ativar método de entrega', 'central-do-frete' ),
-				'type'        => 'checkbox',
-				'default'     => 'yes',
-				'label'       => __( 'Habilitar cotações da Central do Frete', 'central-do-frete' ),
 			],
 			'token' => [
 				'title'       => __( 'Token de acesso', 'central-do-frete' ),
@@ -435,6 +428,12 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 
 	/**
 	 * Check if shipping is available for the given package.
+	 *
+	 * The property read here is the zone screen toggle, not a setting of this plugin:
+	 * `WC_Shipping_Zone::get_shipping_methods()` assigns it from the zone method row's
+	 * `is_enabled` column after constructing the instance, so whatever the form stored is
+	 * discarded. It is the only switch that governs, which is why this plugin no longer
+	 * offers one of its own.
 	 */
 	public function is_available( $package ): bool {
 		if ( $this->enabled !== 'yes' ) {
@@ -1227,11 +1226,9 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 * another zone's.
 	 *
 	 * "Offers this method" here means the zone method row is enabled, which is the zone screen
-	 * toggle. It is not the same as the instance's own "Ativar método de entrega" checkbox:
-	 * that one lives in the settings, so a zone can be matched here with the method switched off
-	 * in it. Every caller has to read that checkbox for itself - `is_available()` does for the
-	 * cart and the checkout, `Cdfrete_Frontend_Calculator::method_is_enabled()` for the product
-	 * page calculator.
+	 * toggle and the only switch that turns the method itself off. The settings hold no second
+	 * one: the checkbox that used to sit there was removed in 3.3.0 because WooCommerce
+	 * overwrites the property it fed, so it decided nothing anywhere.
 	 *
 	 * @param array $destination Package destination: country, state and postcode.
 	 */
@@ -1572,9 +1569,13 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 * Kept free of WordPress so it can be tested on its own. Saved and holding a token is what
 	 * separates an entry the merchant decided on from one they abandoned: WooCommerce enables a
 	 * zone method the moment it is added and stores no settings until the form is saved, so an
-	 * abandoned entry sits there enabled and empty. Both switches then have to be on, because
-	 * an entry that will not answer is not a candidate to answer. Absent counts as on for both,
-	 * which is how a zone saved before the fields existed keeps quoting.
+	 * abandoned entry sits there enabled and empty. The calculator switch then has to be on,
+	 * because an entry that will not answer is not a candidate to answer. Absent counts as on,
+	 * which is how a zone saved before the field existed keeps quoting.
+	 *
+	 * Only that one switch is read. A store that saved the removed "Ativar método de entrega"
+	 * checkbox still has `enabled` in its settings row, and it is left there unread: it never
+	 * governed anything, so acting on it now would silence a zone that quotes today.
 	 *
 	 * This is the product page's question, and the cart's is not the same one: the cart reads
 	 * its own instance through `is_available()` and the calculator switch is none of its
@@ -1584,10 +1585,6 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 */
 	public static function instance_can_answer_the_product_page( array $settings ): bool {
 		if ( empty( $settings ) || empty( $settings['token'] ) ) {
-			return false;
-		}
-
-		if ( ! Cdfrete_Frontend_Calculator::method_is_enabled( $settings ) ) {
 			return false;
 		}
 

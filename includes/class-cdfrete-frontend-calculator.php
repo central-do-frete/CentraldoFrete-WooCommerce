@@ -8,7 +8,6 @@ class Cdfrete_Frontend_Calculator {
 	/** What the zone a shopper's postcode resolves to can do about quoting it. */
 	public const QUOTE_READY           = 'ready';
 	public const QUOTE_NO_ZONE         = 'no_zone';
-	public const QUOTE_METHOD_OFF      = 'method_off';
 	public const QUOTE_CALCULATOR_OFF  = 'calculator_off';
 	public const QUOTE_NEVER_SAVED     = 'never_saved';
 	public const QUOTE_NO_TOKEN        = 'no_token';
@@ -355,14 +354,16 @@ class Cdfrete_Frontend_Calculator {
 	/**
 	 * What the zone a postcode resolves to can do about quoting it.
 	 *
-	 * Kept free of WordPress so the split can be tested on its own. The five ways of not
+	 * Kept free of WordPress so the split can be tested on its own. The four ways of not
 	 * quoting are separate answers because they are separate facts: no zone here carries the
 	 * method at all, the zone that does was added and never saved, it was saved without a
-	 * token, the merchant turned the method itself off for it, or turned off only the product
-	 * page calculator. Never saved is read before either switch because a zone with no settings
-	 * has no switch to read - both fields default to on, which would report a choice the
-	 * merchant never made. The method switch is read before the calculator one because a method
-	 * that is off quotes nowhere, calculator or not.
+	 * token, or the merchant turned the product page calculator off for it. Never saved is read
+	 * before the calculator switch because a zone with no settings has no switch to read - the
+	 * field defaults to on, which would report a choice the merchant never made.
+	 *
+	 * Whether the method itself is on is not asked here and has no state of its own. The only
+	 * switch for that is WooCommerce's zone screen toggle, and an instance the toggle turned
+	 * off never reaches this: `get_enabled_instance_ids()` leaves it out of the resolution.
 	 *
 	 * @param int|null $instance_id Instance the destination resolved to, null when none did.
 	 * @param array    $settings    Settings of that instance, empty when it has none stored.
@@ -374,10 +375,6 @@ class Cdfrete_Frontend_Calculator {
 
 		if ( empty( $settings ) ) {
 			return self::QUOTE_NEVER_SAVED;
-		}
-
-		if ( ! self::method_is_enabled( $settings ) ) {
-			return self::QUOTE_METHOD_OFF;
 		}
 
 		if ( ! self::calculator_is_offered( $settings ) ) {
@@ -450,10 +447,6 @@ class Cdfrete_Frontend_Calculator {
 		$region_off = __( 'O cálculo de frete não está disponível para esta região.', 'central-do-frete' );
 
 		return [
-			self::QUOTE_METHOD_OFF => [
-				'coverage' => self::COVERAGE_RULED_OUT,
-				'message'  => $region_off,
-			],
 			self::QUOTE_CALCULATOR_OFF => [
 				'coverage' => self::COVERAGE_RULED_OUT,
 				'message'  => $region_off,
@@ -486,16 +479,15 @@ class Cdfrete_Frontend_Calculator {
 	 *
 	 * Kept free of WordPress so it can be tested on its own, and kept apart from the sentences
 	 * on purpose: this reads the state the code reached, `refusals()` declares what each
-	 * sentence asserts, and `refuse()` only lets a sentence out when the two agree. A switch the
-	 * merchant turned off for that zone is the only proof the plugin has that the region gets no
-	 * quote. An unfinished zone and a postcode no zone matched prove nothing about coverage.
+	 * sentence asserts, and `refuse()` only lets a sentence out when the two agree. The
+	 * calculator switch turned off for that zone is the only proof the plugin has that the
+	 * region gets no quote. An unfinished zone and a postcode no zone matched prove nothing
+	 * about coverage.
 	 *
 	 * @param string $state One of the QUOTE_ constants, other than QUOTE_READY.
 	 */
 	public static function coverage_verdict( string $state ): string {
-		$switched_off = [ self::QUOTE_METHOD_OFF, self::QUOTE_CALCULATOR_OFF ];
-
-		return in_array( $state, $switched_off, true ) ? self::COVERAGE_RULED_OUT : self::COVERAGE_UNKNOWN;
+		return self::QUOTE_CALCULATOR_OFF === $state ? self::COVERAGE_RULED_OUT : self::COVERAGE_UNKNOWN;
 	}
 
 	/**
@@ -530,16 +522,6 @@ class Cdfrete_Frontend_Calculator {
 					'level'   => 'error',
 					'message' => sprintf(
 						'[CALC] Área de entrega #%d nunca foi salva: a Central do Frete foi adicionada à zona que atende o CEP %s, mas as configurações não foram gravadas',
-						(int) $instance_id,
-						$postcode
-					),
-				];
-
-			case self::QUOTE_METHOD_OFF:
-				return [
-					'level'   => 'debug',
-					'message' => sprintf(
-						'[CALC] Método de entrega desativado na área de entrega #%d, que atende o CEP %s',
 						(int) $instance_id,
 						$postcode
 					),
@@ -589,21 +571,6 @@ class Cdfrete_Frontend_Calculator {
 	 */
 	public static function calculator_is_offered( array $settings ): bool {
 		return ( $settings['product_calculator'] ?? 'yes' ) === 'yes';
-	}
-
-	/**
-	 * Whether the merchant left "Ativar método de entrega" on for one instance.
-	 *
-	 * Kept free of WordPress so it can be tested on its own. `is_available()` reads the same
-	 * checkbox for the cart and the checkout, and it is a different switch from the zone screen
-	 * toggle `get_enabled_instance_ids()` reads, so the calculator has to read it too: without
-	 * it a zone quotes on the product page while the cart offers that region nothing. Absent
-	 * counts as on, which is the field's own default.
-	 *
-	 * @param array $settings Settings of a single instance.
-	 */
-	public static function method_is_enabled( array $settings ): bool {
-		return ( $settings['enabled'] ?? 'yes' ) === 'yes';
 	}
 
 	/**

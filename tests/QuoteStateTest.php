@@ -3,8 +3,8 @@
 use PHPUnit\Framework\TestCase;
 
 /**
- * A postcode that gets no price gets one of five answers, and they are five because they are
- * five different facts. Drawing the calculator and answering it stopped sharing one instance,
+ * A postcode that gets no price gets one of four answers, and they are four because they are
+ * four different facts. Drawing the calculator and answering it stopped sharing one instance,
  * so the zone that answers is no longer the zone the form came from: a zone the merchant added
  * and never saved is enabled from the moment it is added and can be the one a postcode resolves
  * to. It used to land in the same branch as "no zone matched" and both told the shopper "Não
@@ -13,7 +13,7 @@ use PHPUnit\Framework\TestCase;
  */
 class QuoteStateTest extends TestCase {
 
-	private const READY = [ 'enabled' => 'yes', 'token' => 'abc', 'product_calculator' => 'yes' ];
+	private const READY = [ 'token' => 'abc', 'product_calculator' => 'yes' ];
 
 	public function test_no_zone_matching_the_postcode_is_its_own_state(): void {
 		$this->assertSame(
@@ -49,24 +49,22 @@ class QuoteStateTest extends TestCase {
 	}
 
 	/**
-	 * "Ativar método de entrega" is a different switch from the zone screen toggle the instance
-	 * list is read from, and the calculator used to ignore it: the zone quoted on the product
-	 * page while the cart and the checkout offered that region nothing.
+	 * The "Ativar método de entrega" checkbox was removed in 3.3.0: it fed a property
+	 * WooCommerce overwrites from the zone method row, so the cart never honoured it either.
+	 * A store that saved it keeps the row, and a finished zone has to go on quoting - reading
+	 * the leftover now would refuse a region the cart has always priced.
 	 */
-	public function test_a_zone_with_the_method_switched_off_does_not_quote(): void {
+	public function test_the_removed_method_checkbox_no_longer_withholds_a_quote(): void {
 		$this->assertSame(
-			Cdfrete_Frontend_Calculator::QUOTE_METHOD_OFF,
+			Cdfrete_Frontend_Calculator::QUOTE_READY,
 			Cdfrete_Frontend_Calculator::quote_state( 7, [ 'enabled' => 'no', 'token' => 'abc', 'product_calculator' => 'yes' ] )
 		);
 	}
 
-	/**
-	 * A method that is off quotes nowhere, so it is what the merchant is told about, even with
-	 * the calculator switch off as well.
-	 */
-	public function test_the_method_switch_is_read_before_the_calculator_one(): void {
+	/** The calculator switch still decides, whatever the leftover next to it says. */
+	public function test_the_calculator_switch_still_decides_beside_the_leftover(): void {
 		$this->assertSame(
-			Cdfrete_Frontend_Calculator::QUOTE_METHOD_OFF,
+			Cdfrete_Frontend_Calculator::QUOTE_CALCULATOR_OFF,
 			Cdfrete_Frontend_Calculator::quote_state( 7, [ 'enabled' => 'no', 'token' => 'abc', 'product_calculator' => 'no' ] )
 		);
 	}
@@ -78,8 +76,8 @@ class QuoteStateTest extends TestCase {
 		);
 	}
 
-	/** Both switches default to on, which is how a zone saved before either field existed quotes. */
-	public function test_a_zone_saved_before_the_switches_existed_still_quotes(): void {
+	/** The switch defaults to on, which is how a zone saved before the field existed quotes. */
+	public function test_a_zone_saved_before_the_switch_existed_still_quotes(): void {
 		$this->assertSame(
 			Cdfrete_Frontend_Calculator::QUOTE_READY,
 			Cdfrete_Frontend_Calculator::quote_state( 7, [ 'token' => 'abc' ] )
@@ -87,14 +85,14 @@ class QuoteStateTest extends TestCase {
 	}
 
 	/**
-	 * The switches default to on, so reading them on a zone with no settings at all would report
-	 * a choice the merchant never made - and would tell the shopper the region is not covered.
+	 * The switch defaults to on, so reading it on a zone with no settings at all would report a
+	 * choice the merchant never made - and would tell the shopper the region is not covered.
 	 */
 	public function test_a_zone_never_saved_is_not_reported_as_one_that_switched_anything_off(): void {
-		$state = Cdfrete_Frontend_Calculator::quote_state( 7, [] );
-
-		$this->assertNotSame( Cdfrete_Frontend_Calculator::QUOTE_CALCULATOR_OFF, $state );
-		$this->assertNotSame( Cdfrete_Frontend_Calculator::QUOTE_METHOD_OFF, $state );
+		$this->assertNotSame(
+			Cdfrete_Frontend_Calculator::QUOTE_CALCULATOR_OFF,
+			Cdfrete_Frontend_Calculator::quote_state( 7, [] )
+		);
 	}
 
 	public function test_the_log_names_which_state_occurred(): void {
@@ -140,11 +138,6 @@ class QuoteStateTest extends TestCase {
 		);
 
 		$this->assertSame(
-			'debug',
-			Cdfrete_Frontend_Calculator::quote_state_log( Cdfrete_Frontend_Calculator::QUOTE_METHOD_OFF, 7, '30240440' )['level']
-		);
-
-		$this->assertSame(
 			'error',
 			Cdfrete_Frontend_Calculator::quote_state_log( Cdfrete_Frontend_Calculator::QUOTE_NEVER_SAVED, 7, '30240440' )['level']
 		);
@@ -156,7 +149,7 @@ class QuoteStateTest extends TestCase {
 	}
 
 	/**
-	 * The states are read one by one, so a sixth one added later without a line of its own used
+	 * The states are read one by one, so a fifth one added later without a line of its own used
 	 * to inherit whichever branch sat in the default. That branch was the missing token, at the
 	 * level of a fault: the merchant would be sent to a settings screen to fix a token that is
 	 * already there. An unrecognised state names itself instead, the way `refuse()` falls back to
@@ -179,7 +172,6 @@ class QuoteStateTest extends TestCase {
 			Cdfrete_Frontend_Calculator::QUOTE_NO_ZONE,
 			Cdfrete_Frontend_Calculator::QUOTE_NEVER_SAVED,
 			Cdfrete_Frontend_Calculator::QUOTE_NO_TOKEN,
-			Cdfrete_Frontend_Calculator::QUOTE_METHOD_OFF,
 			Cdfrete_Frontend_Calculator::QUOTE_CALCULATOR_OFF,
 		];
 	}
