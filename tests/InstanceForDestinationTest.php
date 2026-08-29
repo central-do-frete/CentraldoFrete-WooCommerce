@@ -76,12 +76,14 @@ class InstanceForDestinationTest extends TestCase {
 	}
 
 	/**
-	 * The product page knows a postcode and no state, and WooCommerce matches a state location
-	 * as "<country>:<state>". With the state blank that criterion matches nothing, so a zone
-	 * defined by state is not considered at all and the query falls through to the next zone by
-	 * order. A store with "Brazil : SP" and "Brazil" both carrying the method would have quoted
-	 * every São Paulo postcode from the country wide zone - its token, its fee, its rules -
-	 * while the cart, which knows the state, priced the same basket from the other one.
+	 * The state is derived from the postcode before the zone is matched, so a destination reaches
+	 * here stateless only when no published range covers it: this is the exception now rather
+	 * than the rule. WooCommerce matches a state location as "<country>:<state>", and with the
+	 * state blank that criterion matches nothing, so a zone defined by state is not considered at
+	 * all and the query falls through to the next zone by order. A store with "Brazil : SP" and
+	 * "Brazil" both carrying the method would have quoted such a postcode from the country wide
+	 * zone - its token, its fee, its rules - while the cart, which is given the state by the
+	 * shopper's address, priced the same basket from the other one.
 	 */
 	public function test_a_zone_defined_by_state_elsewhere_cancels_a_postcode_only_match(): void {
 		$this->assertNull( Cdfrete_Shipping_Method::stateless_pick( 3, [ 3 ], [ 9 ] ) );

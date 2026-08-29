@@ -436,11 +436,13 @@ class Cdfrete_Frontend_Calculator {
 	 * read store wide and sent shoppers away from a product other zones quote. An unfinished
 	 * zone is not a coverage fact and is nothing the shopper can fix, so it claims neither and
 	 * does not suggest trying again - the next attempt fails the same way until the merchant
-	 * finishes the zone. A postcode no zone matched says only that, because a store defining its
-	 * zones by state does serve those postcodes and the calculator cannot tell which zone they
-	 * belong to. Options the zone's filters removed are the plainest case of all: the plugin
-	 * watched carriers price that postcode and hid them itself, so it says the store is not
-	 * showing them rather than that there are none.
+	 * finishes the zone. A postcode no zone matched says only that, and asks nothing of the
+	 * shopper: the two ways of getting here are a postcode no published range covers and a
+	 * postcode whose zone does not carry this method, and in both the plugin read the number it
+	 * was given and has nothing to report about coverage or about the number. Options the zone's
+	 * filters removed are the plainest case of all: the plugin watched carriers price that
+	 * postcode and hid them itself, so it says the store is not showing them rather than that
+	 * there are none.
 	 */
 	private static function refusals(): array {
 		$unfinished = __( 'Não conseguimos calcular o frete para este CEP nesta página. Entre em contato com a loja para saber as opções de entrega.', 'central-do-frete' );
@@ -465,7 +467,7 @@ class Cdfrete_Frontend_Calculator {
 			],
 			self::QUOTE_NO_ZONE => [
 				'coverage' => self::COVERAGE_UNKNOWN,
-				'message'  => __( 'Não foi possível identificar a área de entrega deste CEP. Confira o número digitado ou entre em contato com a loja.', 'central-do-frete' ),
+				'message'  => __( 'Não foi possível identificar a área de entrega deste CEP. Entre em contato com a loja para saber as opções de entrega.', 'central-do-frete' ),
 			],
 			self::QUOTE_NEVER_SAVED => [
 				'coverage' => self::COVERAGE_UNKNOWN,
