@@ -13,10 +13,39 @@ class InstanceForDestinationTest extends TestCase {
 		$this->assertNull( Cdfrete_Shipping_Method::pick_instance( [], [ 4 ] ) );
 	}
 
-	public function test_a_single_enabled_instance_answers_without_consulting_the_zone(): void {
-		// The product page knows a postcode but no state, so a zone defined by state cannot be
-		// matched. With one instance there is nothing to get wrong, and it must keep quoting.
-		$this->assertSame( 7, Cdfrete_Shipping_Method::pick_instance( [ 7 ], [] ) );
+	public function test_a_single_enabled_instance_is_matched_like_any_other(): void {
+		// It used to answer without consulting the zone, because a postcode alone could not reach
+		// a zone defined by state. The postcode now carries its state, so the exemption is gone:
+		// the only instance in the store still has to be in the zone the destination falls into.
+		$this->assertNull( Cdfrete_Shipping_Method::pick_instance( [ 7 ], [] ) );
+		$this->assertSame( 7, Cdfrete_Shipping_Method::pick_instance( [ 7 ], [ 7 ] ) );
+	}
+
+	public function test_a_zone_holding_an_abandoned_entry_answers_from_the_one_that_can_quote(): void {
+		// Added to the zone, form closed without saving, then added again and configured. The
+		// leftover is the older id, so the lowest-id rule alone would answer from the empty one
+		// while the cart quotes that same basket from the configured sibling.
+		$this->assertSame( 14, Cdfrete_Shipping_Method::pick_instance( [ 9, 14 ], [ 9, 14 ], [ 14 ] ) );
+	}
+
+	public function test_the_lowest_id_still_wins_among_instances_that_can_all_quote(): void {
+		$this->assertSame( 9, Cdfrete_Shipping_Method::pick_instance( [ 9, 14 ], [ 9, 14 ], [ 9, 14 ] ) );
+	}
+
+	public function test_the_lowest_id_still_wins_when_none_of_them_can_quote(): void {
+		$this->assertSame( 9, Cdfrete_Shipping_Method::pick_instance( [ 9, 14 ], [ 9, 14 ], [] ) );
+	}
+
+	public function test_a_quotable_instance_outside_the_matched_zone_does_not_rescue_the_match(): void {
+		// Preferring one that can quote narrows the candidates; it never widens them past the zone.
+		$this->assertNull( Cdfrete_Shipping_Method::pick_instance( [ 3, 9 ], [], [ 3, 9 ] ) );
+	}
+
+	public function test_the_tie_break_is_stable_across_input_orderings(): void {
+		$this->assertSame(
+			Cdfrete_Shipping_Method::pick_instance( [ 9, 14, 21 ], [ 9, 14, 21 ], [ 14, 21 ] ),
+			Cdfrete_Shipping_Method::pick_instance( [ 21, 9, 14 ], [ 21, 14, 9 ], [ 21, 14 ] )
+		);
 	}
 
 	public function test_the_instance_of_the_matched_zone_wins(): void {

@@ -47,10 +47,12 @@ is likewise keyed by `Cdfrete_API_Client::account_scope()`, never by a single st
 Every sentence telling a shopper this store will not price their postcode leaves through
 `Cdfrete_Frontend_Calculator::refuse()`, and it takes a coverage verdict with no default:
 a message about the region is only released to a caller that read the setting withholding the
-quote. Write new refusals there rather than in the AJAX handler. The handler still answers a
-postcode that is not eight digits, a product that does not exist and a failed request directly,
-because those state what happened and say nothing about what the store serves - do not read the
-single site as a sweep of every `wp_send_json_error` in the file.
+quote. Write new refusals there rather than in the AJAX handler. The handler still answers four
+cases directly - a postcode that is not eight digits, a product that does not exist or is
+unpublished, a failed request, and a postcode the service itself returned no carrier for -
+because each states what happened rather than what the store serves; the last is a claim only
+because the service was asked and answered nothing. Do not read the single site as a sweep of
+every `wp_send_json_error` in the file.
 
 The zone a destination falls into is matched with a state, and a stateless destination silently
 falls through to the next zone by order. `Cdfrete_Shipping_Method::state_for_postcode()` derives

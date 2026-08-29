@@ -393,10 +393,12 @@ class Cdfrete_Frontend_Calculator {
 	/**
 	 * The one place a shopper is told this store will not price their postcode.
 	 *
-	 * Not every answer without a price comes through here, and none of the others should: a
-	 * postcode that is not eight digits, a product that does not exist and a request the service
-	 * failed are all reported straight from the handler, because each states what really
-	 * happened and none of them is about what the store serves.
+	 * Not every answer without a price comes through here, and none of the others should. Four
+	 * cases are reported straight from the handler because each states what really happened: a
+	 * postcode that is not eight digits, a product that does not exist or is unpublished, a
+	 * request the service failed, and a postcode the service itself returned no carrier for.
+	 * The last one is the only one that reads like a statement about the store, and it is
+	 * allowed to: the service was asked and answered nothing, which the plugin did verify.
 	 *
 	 * The coverage verdict is a required argument with no default because refusals written here
 	 * kept asserting what nobody had checked: one of them told shoppers the store does not quote

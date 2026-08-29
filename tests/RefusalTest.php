@@ -3,8 +3,10 @@
 use PHPUnit\Framework\TestCase;
 
 /**
- * Every sentence a shopper reads instead of a price leaves through one function, and it cannot
- * leave without saying whether the plugin checked that the region gets no quote. Refusals used
+ * Every sentence telling a shopper this store will not price their postcode leaves through one
+ * function, and it cannot leave without saying whether the plugin checked that the region gets
+ * no quote. The handler still answers a bad postcode, a missing product, a failed request and a
+ * postcode the service returned nothing for on its own, and those are not swept up here. Refusals used
  * to answer that question by accident: one of them told shoppers the store does not quote a
  * product it quotes in every other zone, which reads as "there is no freight for this at all"
  * and ends the visit. These tests hold the guard rail rather than the wording: a sentence that
