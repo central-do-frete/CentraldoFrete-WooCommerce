@@ -52,11 +52,48 @@ class InstanceForDestinationTest extends TestCase {
 	public function test_a_zone_whose_only_entry_has_the_calculator_off_still_refuses(): void {
 		$off = [ 'token' => 'abc', 'enabled' => 'yes', 'product_calculator' => 'no' ];
 
-		$this->assertSame( 6, Cdfrete_Shipping_Method::pick_instance( [ 6 ], [ 6 ], [] ) );
+		$this->assertSame( 6, Cdfrete_Shipping_Method::pick_instance( [ 6 ], [ 6 ], [], [ 6 ] ) );
 		$this->assertSame(
 			Cdfrete_Frontend_Calculator::QUOTE_CALCULATOR_OFF,
 			Cdfrete_Frontend_Calculator::quote_state( 6, $off )
 		);
+	}
+
+	/**
+	 * Neither entry of this zone can answer: the older one was added and closed without saving,
+	 * the newer one was saved and had the calculator switched off. The switched off entry is what
+	 * governs the region, so it is the one that speaks for the zone - the shopper reads that the
+	 * calculation is not available there, which is true of their region, instead of a failure of
+	 * the page, and the log names that entry rather than sending the merchant to finish a form
+	 * that decides nothing.
+	 */
+	public function test_a_saved_entry_that_cannot_answer_outranks_one_that_was_never_saved(): void {
+		$off = [ 'token' => 'abc', 'enabled' => 'yes', 'product_calculator' => 'no' ];
+
+		$this->assertSame( 11, Cdfrete_Shipping_Method::pick_instance( [ 6, 11 ], [ 6, 11 ], [], [ 11 ] ) );
+		$this->assertSame(
+			Cdfrete_Frontend_Calculator::QUOTE_CALCULATOR_OFF,
+			Cdfrete_Frontend_Calculator::quote_state( 11, $off )
+		);
+	}
+
+	/** With nothing saved anywhere in the zone the lowest id answers, as it always did. */
+	public function test_a_never_saved_entry_answers_when_it_is_all_the_zone_has(): void {
+		$this->assertSame( 6, Cdfrete_Shipping_Method::pick_instance( [ 6, 11 ], [ 6, 11 ], [], [] ) );
+		$this->assertSame(
+			Cdfrete_Frontend_Calculator::QUOTE_NEVER_SAVED,
+			Cdfrete_Frontend_Calculator::quote_state( 6, [] )
+		);
+	}
+
+	/** An entry that can answer wins over a saved one that cannot, lower id or not. */
+	public function test_answering_beats_saved_and_saved_beats_never_saved(): void {
+		$this->assertSame( 14, Cdfrete_Shipping_Method::pick_instance( [ 6, 11, 14 ], [ 6, 11, 14 ], [ 14 ], [ 11, 14 ] ) );
+		$this->assertSame( 11, Cdfrete_Shipping_Method::pick_instance( [ 6, 11, 14 ], [ 6, 11, 14 ], [], [ 11, 14 ] ) );
+	}
+
+	public function test_saved_ids_read_from_the_database_as_strings_are_compared_as_numbers(): void {
+		$this->assertSame( 11, Cdfrete_Shipping_Method::pick_instance( [ '6', '11' ], [ '6', '11' ], [], [ '11' ] ) );
 	}
 
 	/**
@@ -75,7 +112,7 @@ class InstanceForDestinationTest extends TestCase {
 	}
 
 	public function test_the_lowest_id_still_wins_when_none_of_them_can_quote(): void {
-		$this->assertSame( 9, Cdfrete_Shipping_Method::pick_instance( [ 9, 14 ], [ 9, 14 ], [] ) );
+		$this->assertSame( 9, Cdfrete_Shipping_Method::pick_instance( [ 9, 14 ], [ 9, 14 ], [], [ 9, 14 ] ) );
 	}
 
 	public function test_a_quotable_instance_outside_the_matched_zone_does_not_rescue_the_match(): void {

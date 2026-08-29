@@ -608,16 +608,17 @@ class Cdfrete_Frontend_Calculator {
 
 	/**
 	 * The product page has no destination yet, so the calculator shows up when any enabled
-	 * instance is configured to offer it. Which zone answers is decided once the shopper
-	 * types a postcode, and that zone's own switches decide whether it answers at all.
+	 * instance is configured to offer it. Which zone answers is decided once the shopper types
+	 * a postcode, and that zone's own switches decide whether it answers at all.
+	 *
+	 * "Configured to offer it" is the same question the resolution asks of one instance, so it
+	 * is asked through the same predicate rather than spelled out again here. Two places reading
+	 * one switch and drifting apart is the defect this release exists to close, and drawing a
+	 * field the answering path would never fill is that defect in its plainest form.
 	 */
 	private static function any_instance_offers_the_calculator(): bool {
 		foreach ( Cdfrete_Shipping_Method::get_all_settings() as $settings ) {
-			if ( empty( $settings['token'] ) || ! self::method_is_enabled( $settings ) ) {
-				continue;
-			}
-
-			if ( self::calculator_is_offered( $settings ) ) {
+			if ( Cdfrete_Shipping_Method::instance_can_answer_the_product_page( $settings ) ) {
 				return true;
 			}
 		}

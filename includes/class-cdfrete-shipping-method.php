@@ -1284,7 +1284,12 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 			}
 		}
 
-		$picked = self::pick_instance( $enabled, $zone_instance_ids, self::quotable_instance_ids( $zone_instance_ids ) );
+		$picked = self::pick_instance(
+			$enabled,
+			$zone_instance_ids,
+			self::quotable_instance_ids( $zone_instance_ids ),
+			self::saved_instance_ids( $zone_instance_ids )
+		);
 
 		if ( '' !== trim( (string) $destination['state'] ) ) {
 			return $picked;
@@ -1456,18 +1461,23 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 * the postcode now carries its state.
 	 *
 	 * One zone can hold the method twice, and then the lowest id is the entry added first, which
-	 * is the one most likely to be a form the merchant closed without saving. Preferring an
-	 * instance that can quote is not enough on its own, because it narrows the field without
-	 * ordering it, so the whole tie-break is written out here: among the matched zone's enabled
-	 * instances, those that can quote beat those that cannot, and the lowest id wins inside
-	 * whichever of those two groups is used. The answer follows from the ids and the quotable
-	 * list alone, so it does not move with the order the database returned them in.
+	 * is the one most likely to be a form the merchant closed without saving. Preferring narrows
+	 * the field without ordering it, so the whole order is written out here and it is three
+	 * groups deep: an entry that can answer beats a saved entry that cannot, and a saved entry
+	 * beats one that was never saved at all. The lowest id wins inside whichever group is used.
+	 * The middle group is why the third exists: a merchant who saved an entry and switched the
+	 * calculator off in it decided something about that region, while an entry nobody ever saved
+	 * decided nothing, and letting the leftover speak for the zone would answer a shopper with a
+	 * page level failure and send the merchant to finish a form that governs nothing. The answer
+	 * follows from the ids and the two lists alone, so it does not move with the order the
+	 * database returned them in.
 	 *
 	 * @param int[] $enabled_ids       Ids of every enabled instance, store wide.
 	 * @param int[] $zone_instance_ids Ids this method has in the matched zone.
 	 * @param int[] $quotable_ids      Of those, the ones that could actually answer the caller.
+	 * @param int[] $saved_ids         Of those, the ones whose settings exist at all.
 	 */
-	public static function pick_instance( array $enabled_ids, array $zone_instance_ids, array $quotable_ids = [] ): ?int {
+	public static function pick_instance( array $enabled_ids, array $zone_instance_ids, array $quotable_ids = [], array $saved_ids = [] ): ?int {
 		$enabled    = array_values( array_unique( array_map( 'intval', $enabled_ids ) ) );
 		$candidates = array_intersect( $enabled, array_map( 'intval', $zone_instance_ids ) );
 
@@ -1475,9 +1485,18 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 			return null;
 		}
 
-		$quotable = array_intersect( $candidates, array_map( 'intval', $quotable_ids ) );
+		$preferred = [
+			array_intersect( $candidates, array_map( 'intval', $quotable_ids ) ),
+			array_intersect( $candidates, array_map( 'intval', $saved_ids ) ),
+		];
 
-		return min( empty( $quotable ) ? $candidates : $quotable );
+		foreach ( $preferred as $group ) {
+			if ( ! empty( $group ) ) {
+				return min( $group );
+			}
+		}
+
+		return min( $candidates );
 	}
 
 	/**
@@ -1488,16 +1507,23 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 	 * leftover, and refusing on account of the leftover would tell the shopper their region
 	 * cannot be quoted while the sibling entry quotes that region.
 	 *
-	 * The product page calculator switch counts here, and why it once looked as though it
-	 * should not is worth writing down, because unifying the two readings of it will look like a
-	 * simplification. This asks which of a zone's entries answers when the zone holds more than
-	 * one; `Cdfrete_Frontend_Calculator::quote_state()` asks whether the entry that answered
-	 * will quote at all. Leave the switch out of this one and a leftover entry with it off
-	 * speaks for a zone whose sibling has it on, telling the shopper their region gets no
-	 * calculation while the cart quotes them from that sibling. Have `quote_state()` trust this
-	 * list instead of reading the settings itself and a zone the merchant switched off starts
-	 * answering. A zone whose only entry has the switch off keeps refusing either way: nothing
-	 * quotable falls back to the lowest id, and `quote_state()` reads that entry's own settings.
+	 * The product page calculator switch counts here, and why it once looked as though it should
+	 * not is worth writing down, because unifying the two readings of it will look like a
+	 * simplification. There are exactly two, and both go through
+	 * `Cdfrete_Frontend_Calculator::calculator_is_offered()`. This one, reached through
+	 * `instance_can_answer_the_product_page()`, asks which of a zone's entries answers when the
+	 * zone holds more than one, and `any_instance_offers_the_calculator()` asks the same
+	 * question of a store with no destination yet through the same predicate. The other,
+	 * `Cdfrete_Frontend_Calculator::quote_state()`, asks whether the entry that answered will
+	 * quote at all. Leave the switch out of this one and a leftover entry with it off speaks for
+	 * a zone whose sibling has it on, telling the shopper their region gets no calculation while
+	 * the cart quotes them from that sibling. Have `quote_state()` trust this list instead of
+	 * reading the settings itself and a zone the merchant switched off starts answering.
+	 *
+	 * An entry the switch rules out is still a decision, so it is not dropped to the back of the
+	 * queue: `pick_instance()` prefers a saved entry over a never saved one, and a zone whose
+	 * only entry has the switch off refuses through `quote_state()` reading that entry's own
+	 * settings, which is the sentence naming the region rather than the page.
 	 *
 	 * @param int[] $instance_ids Instances to test.
 	 *
@@ -1513,6 +1539,31 @@ class Cdfrete_Shipping_Method extends WC_Shipping_Method {
 		}
 
 		return $quotable;
+	}
+
+	/**
+	 * Which of these instances the merchant ever saved a form for.
+	 *
+	 * WooCommerce enables a zone method the moment it is added and stores no settings until the
+	 * form is saved, so this is the line between a decision and a leftover, whatever the
+	 * decision turned out to be. `pick_instance()` orders by it, so a zone holding a leftover
+	 * next to an entry that was configured and then switched off answers from the one that was
+	 * configured.
+	 *
+	 * @param int[] $instance_ids Instances to test.
+	 *
+	 * @return int[] Those with settings stored.
+	 */
+	private static function saved_instance_ids( array $instance_ids ): array {
+		$saved = [];
+
+		foreach ( $instance_ids as $instance_id ) {
+			if ( ! empty( self::get_instance_settings( (int) $instance_id ) ) ) {
+				$saved[] = (int) $instance_id;
+			}
+		}
+
+		return $saved;
 	}
 
 	/**

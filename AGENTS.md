@@ -39,6 +39,10 @@ settings only mean something next to a destination. Read them with
 genuinely no destination. Never pick an instance yourself.
 Use `resolve_for_destination()` instead wherever "no zone matched" and "a zone matched but was
 never saved" have to be told apart: the settings-only accessor returns an empty array for both.
+Both carry the product page's preference, which is not a neutral one: where a zone holds the
+method twice they prefer an entry that will answer the product page, so an entry with the
+calculator switched off loses to a sibling without it. Any other caller - a checkout path, an
+admin preview - has its own preference to state and must not inherit that one.
 A per-zone setting governs what that zone does, not just what the store draws: the product page
 calculator renders when any zone offers it, and then the zone the shopper's postcode falls into
 decides whether it answers. Anything keyed per account (cached prices, the resolved origin map)
